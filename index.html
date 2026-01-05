@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delivery & COD Tracker (Enhanced Color Coding)</title>
+    <title>Delivery & COD Tracker (Excel Export)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script type="module">
@@ -36,13 +36,8 @@
         let currentTab = 'All';
         let editingId = null;
 
-        const authScreen = document.getElementById('auth-screen');
-        const branchScreen = document.getElementById('branch-selection-screen');
-        const mainScreen = document.getElementById('main-screen');
-        const loadingSpinner = document.getElementById('loading-spinner');
-
         onAuthStateChanged(auth, (currUser) => {
-            loadingSpinner.classList.add('hidden');
+            document.getElementById('loading-spinner').classList.add('hidden');
             if (currUser && ALLOWED_EMAILS.includes(currUser.email)) {
                 handleLoginSuccess(currUser);
             } else if (sessionStorage.getItem('is_admin') === 'true') {
@@ -62,13 +57,13 @@
         }
 
         function showScreen(type) {
-            authScreen.classList.add('hidden');
-            branchScreen.classList.add('hidden');
-            mainScreen.classList.add('hidden');
-            if (type === 'auth') authScreen.classList.remove('hidden');
-            if (type === 'branch') branchScreen.classList.remove('hidden');
+            document.getElementById('auth-screen').classList.add('hidden');
+            document.getElementById('branch-selection-screen').classList.add('hidden');
+            document.getElementById('main-screen').classList.add('hidden');
+            if (type === 'auth') document.getElementById('auth-screen').classList.remove('hidden');
+            if (type === 'branch') document.getElementById('branch-selection-screen').classList.remove('hidden');
             if (type === 'main') {
-                mainScreen.classList.remove('hidden');
+                document.getElementById('main-screen').classList.remove('hidden');
                 loadData();
             }
         }
@@ -122,18 +117,23 @@
             renderTable();
         };
 
-        function renderTable() {
-            const list = document.getElementById('delivery-list');
+        // Filter Logic
+        function getFilteredData() {
             const search = document.getElementById('search-input').value.toLowerCase();
             const dateFilter = document.getElementById('date-filter').value;
             
-            const filtered = deliveries.filter(d => {
+            return deliveries.filter(d => {
                 const isBranch = d.branch === currentBranch;
                 const isTab = currentTab === 'All' ? true : d.status === currentTab;
-                const isSearch = d.customer?.toLowerCase().includes(search) || d.orderId?.toLowerCase().includes(search);
+                const isSearch = (d.customer?.toLowerCase().includes(search) || d.orderId?.toLowerCase().includes(search));
                 const isDate = dateFilter ? d.deliveryDate === dateFilter : true;
                 return isBranch && isTab && isSearch && isDate;
             }).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
+        }
+
+        function renderTable() {
+            const list = document.getElementById('delivery-list');
+            const filtered = getFilteredData();
 
             list.innerHTML = filtered.map(item => `
                 <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-all">
@@ -150,14 +150,12 @@
                     <td class="px-6 py-4 font-black text-slate-700">${(Number(item.cod) || 0).toLocaleString()} Ks</td>
                     <td class="px-6 py-4">
                         <div class="flex flex-col gap-1.5">
-                            <!-- ပို့ဆောင်မှု Status (အစိမ်း/အနီ) -->
                             <button onclick="window.updateField('${item.id}', 'status', '${item.status === 'Delivered' ? 'Pending' : 'Delivered'}')" 
-                                class="text-[10px] font-black px-3 py-1.5 rounded-lg text-white transition-all shadow-sm ${item.status === 'Delivered' ? 'bg-green-500 hover:bg-green-600' : 'bg-rose-500 hover:bg-rose-600'}">
+                                class="text-[10px] font-black px-3 py-1.5 rounded-lg text-white shadow-sm ${item.status === 'Delivered' ? 'bg-green-500' : 'bg-rose-500'}">
                                 ${item.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်'}
                             </button>
-                            <!-- COD Status (အစိမ်း/အနီ) -->
                             <button onclick="window.updateField('${item.id}', 'codStatus', '${item.codStatus === 'Paid' ? 'Unpaid' : 'Paid'}')" 
-                                class="text-[10px] font-black px-3 py-1.5 rounded-lg transition-all border-2 ${item.codStatus === 'Paid' ? 'bg-green-50 border-green-500 text-green-600' : 'bg-rose-50 border-rose-500 text-rose-600'}">
+                                class="text-[10px] font-black px-3 py-1.5 rounded-lg border-2 ${item.codStatus === 'Paid' ? 'bg-green-50 border-green-500 text-green-600' : 'bg-rose-50 border-rose-500 text-rose-600'}">
                                 COD ${item.codStatus === 'Paid' ? 'ရှင်းပြီး' : 'မရှင်းသေး'}
                             </button>
                         </div>
@@ -173,6 +171,50 @@
             if(!filtered.length) list.innerHTML = `<tr><td colspan="5" class="py-20 text-center text-gray-300 font-bold">စာရင်းမရှိသေးပါ။</td></tr>`;
             lucide.createIcons();
         }
+
+        // Export to Excel Function
+        window.exportToExcel = () => {
+            const filtered = getFilteredData();
+            if(filtered.length === 0) {
+                alert("Download ဆွဲရန် စာရင်းမရှိပါ။");
+                return;
+            }
+
+            // Define Headers
+            const headers = ["Order ID", "Date", "Customer", "Phone", "COD Amount", "Status", "COD Status", "Items", "Address", "Note"];
+            
+            // Format Rows
+            const rows = filtered.map(d => [
+                d.orderId,
+                d.deliveryDate,
+                d.customer,
+                `'${d.phone || ''}`, // Phone numbers as strings
+                d.cod,
+                d.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်',
+                d.codStatus === 'Paid' ? 'ရှင်းပြီး' : 'မရှင်းသေး',
+                `"${(d.items || '').replace(/"/g, '""')}"`, // Escape quotes
+                `"${(d.address || '').replace(/"/g, '""')}"`,
+                `"${(d.note || '').replace(/"/g, '""')}"`
+            ]);
+
+            // Combine into CSV format
+            const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+            
+            // Add UTF-8 BOM for Burmese characters support in Excel
+            const universalBOM = "\uFEFF";
+            const blob = new Blob([universalBOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            const fileName = `DQ_Tracker_${currentBranch}_${new Date().toLocaleDateString()}.csv`;
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", fileName);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
 
         window.updateField = async (id, field, value) => {
             await updateDoc(doc(db, COLLECTION_NAME, id), { [field]: value });
@@ -251,28 +293,18 @@
         };
 
         window.switchFormTab = (tab) => {
-            const infoBtn = document.getElementById('btn-form-info');
-            const itemsBtn = document.getElementById('btn-form-items');
-            const addrBtn = document.getElementById('btn-form-address');
-            
-            const infoSection = document.getElementById('section-info');
-            const itemsSection = document.getElementById('section-items');
-            const addrSection = document.getElementById('section-address');
-
-            // Reset all
-            [infoBtn, itemsBtn, addrBtn].forEach(b => b.className = "flex-1 py-3 text-[11px] font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all");
-            [infoSection, itemsSection, addrSection].forEach(s => s.classList.add('hidden'));
-
-            if (tab === 'info') {
-                infoBtn.className = "flex-1 py-3 text-[11px] font-black bg-blue-50 text-blue-600 rounded-xl transition-all";
-                infoSection.classList.remove('hidden');
-            } else if (tab === 'items') {
-                itemsBtn.className = "flex-1 py-3 text-[11px] font-black bg-blue-50 text-blue-600 rounded-xl transition-all";
-                itemsSection.classList.remove('hidden');
-            } else if (tab === 'address') {
-                addrBtn.className = "flex-1 py-3 text-[11px] font-black bg-blue-50 text-blue-600 rounded-xl transition-all";
-                addrSection.classList.remove('hidden');
-            }
+            const tabs = ['info', 'items', 'address'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`btn-form-${t}`);
+                const sec = document.getElementById(`section-${t}`);
+                if (t === tab) {
+                    btn.className = "flex-1 py-3 text-[11px] font-black bg-blue-50 text-blue-600 rounded-xl transition-all";
+                    sec.classList.remove('hidden');
+                } else {
+                    btn.className = "flex-1 py-3 text-[11px] font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all";
+                    sec.classList.add('hidden');
+                }
+            });
         };
 
         document.getElementById('login-google').onclick = () => signInWithPopup(auth, provider);
@@ -355,12 +387,16 @@
                     <button data-branch="Mandalay" onclick="selectBranch('Mandalay')" class="branch-toggle-btn px-4 py-2 rounded-xl text-xs font-black transition-all">မန္တလေး</button>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
-                <button id="btn-logout" class="p-3 bg-white border border-slate-100 text-slate-400 rounded-2xl hover:text-red-500 transition-colors shadow-sm"><i data-lucide="log-out" class="w-5 h-5"></i></button>
+            <div class="flex items-center gap-3 flex-wrap">
+                <button onclick="exportToExcel()" class="bg-emerald-50 text-emerald-600 px-6 py-4 rounded-[1.5rem] font-black shadow-sm border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2">
+                    <i data-lucide="download" class="w-4 h-4"></i> စာရင်းကို Excel ထုတ်ယူရန်
+                </button>
+                <button id="btn-logout" class="p-4 bg-white border border-slate-100 text-slate-400 rounded-2xl hover:text-red-500 transition-colors shadow-sm"><i data-lucide="log-out" class="w-5 h-5"></i></button>
                 <button id="btn-add" class="bg-blue-600 text-white px-8 py-4 rounded-[1.5rem] font-black shadow-xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">စာရင်းအသစ်ထည့်ရန်</button>
             </div>
         </header>
 
+        <!-- Stats -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
             <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-6">
                 <div class="bg-blue-50 p-5 rounded-2xl text-blue-600"><i data-lucide="banknote" class="w-8 h-8"></i></div>
@@ -391,6 +427,7 @@
             </div>
         </div>
 
+        <!-- List Table -->
         <div class="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left whitespace-nowrap">
@@ -403,128 +440,56 @@
         </div>
     </div>
 
-    <!-- Add/Edit Modal -->
+    <!-- Modal Form -->
     <div id="modal" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-        <div class="bg-white rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div class="px-10 py-6 border-b border-slate-50 flex justify-between items-center bg-white sticky top-0 z-10">
+        <div class="bg-white rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden">
+            <div class="px-10 py-6 border-b border-slate-50 flex justify-between items-center">
                 <h3 id="modal-title" class="text-xl font-black text-slate-800">အော်ဒါအသစ်ထည့်ရန်</h3>
                 <button id="btn-close-modal" class="p-2 hover:bg-slate-100 rounded-full transition-all text-slate-400"><i data-lucide="x"></i></button>
             </div>
             <div class="px-10 pt-4">
                 <div class="flex bg-slate-50 p-1.5 rounded-2xl gap-1">
-                    <button type="button" id="btn-form-info" onclick="switchFormTab('info')" class="flex-1 py-3 text-[11px] font-black bg-blue-50 text-blue-600 rounded-xl transition-all">အခြေခံအချက်အလက်</button>
-                    <button type="button" id="btn-form-items" onclick="switchFormTab('items')" class="flex-1 py-3 text-[11px] font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">မှာယူသည့် ပစ္စည်းများ</button>
-                    <button type="button" id="btn-form-address" onclick="switchFormTab('address')" class="flex-1 py-3 text-[11px] font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">လိပ်စာနှင့်မှတ်ချက်</button>
+                    <button type="button" id="btn-form-info" onclick="switchFormTab('info')" class="flex-1 py-3 text-[11px] font-black bg-blue-50 text-blue-600 rounded-xl transition-all">အချက်အလက်</button>
+                    <button type="button" id="btn-form-items" onclick="switchFormTab('items')" class="flex-1 py-3 text-[11px] font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">မှာယူသည့် ပစ္စည်း</button>
+                    <button type="button" id="btn-form-address" onclick="switchFormTab('address')" class="flex-1 py-3 text-[11px] font-bold text-slate-400 hover:bg-slate-50 rounded-xl transition-all">လိပ်စာ/မှတ်ချက်</button>
                 </div>
             </div>
             <form id="order-form" class="p-10 space-y-6">
-                <!-- Info Section -->
                 <div id="section-info" class="grid grid-cols-2 gap-5">
-                    <div class="col-span-1 space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Order ID</label>
-                        <input id="f-id" required class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
-                    </div>
-                    <div class="col-span-1 space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Date</label>
-                        <input id="f-date" type="date" required class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
-                    </div>
-                    <div class="col-span-1 space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Customer Name</label>
-                        <input id="f-name" required class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
-                    </div>
-                    <div class="col-span-1 space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Phone</label>
-                        <input id="f-phone" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
-                    </div>
-                    <div class="col-span-2 space-y-1.5 pt-2">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-blue-600">COD Amount (Ks)</label>
-                        <input id="f-cod" required type="text" class="w-full px-5 py-4 bg-blue-50 rounded-2xl outline-none font-black text-blue-600 text-lg border border-transparent focus:bg-white focus:border-blue-200 transition-all">
-                    </div>
+                    <div class="col-span-1 space-y-1.5"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Order ID</label><input id="f-id" required class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200"></div>
+                    <div class="col-span-1 space-y-1.5"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Date</label><input id="f-date" type="date" required class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200"></div>
+                    <div class="col-span-1 space-y-1.5"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Customer</label><input id="f-name" required class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200"></div>
+                    <div class="col-span-1 space-y-1.5"><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Phone</label><input id="f-phone" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200"></div>
+                    <div class="col-span-2 space-y-1.5 pt-2"><label class="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-1">COD Amount</label><input id="f-cod" required class="w-full px-5 py-4 bg-blue-50 rounded-2xl outline-none font-black text-blue-600 text-lg border border-transparent focus:bg-white focus:border-blue-200"></div>
                 </div>
-
-                <!-- Items Section -->
-                <div id="section-items" class="hidden space-y-5">
-                    <div class="space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-blue-600">Ordered Items (မှာယူထားသည့် ပစ္စည်းများ)</label>
-                        <textarea id="f-items" placeholder="ဥပမာ- Toner (1), Cream (2)" rows="6" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all resize-none"></textarea>
-                    </div>
-                </div>
-
-                <!-- Address & Note Section -->
+                <div id="section-items" class="hidden"><label class="text-[10px] font-black text-blue-600 uppercase tracking-widest ml-1">Ordered Items</label><textarea id="f-items" placeholder="ဥပမာ- Toner (1), Cream (2)" rows="6" class="w-full mt-2 px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 resize-none"></textarea></div>
                 <div id="section-address" class="hidden space-y-5">
-                    <div class="space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address (လိပ်စာ)</label>
-                        <textarea id="f-address" rows="3" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all resize-none"></textarea>
-                    </div>
-                    <div class="space-y-1.5">
-                        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Note (မှတ်ချက်)</label>
-                        <textarea id="f-note" rows="2" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all resize-none"></textarea>
-                    </div>
+                    <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address</label><textarea id="f-address" rows="3" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 resize-none"></textarea></div>
+                    <div><label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Note</label><textarea id="f-note" rows="2" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 resize-none"></textarea></div>
                 </div>
-                
                 <button type="submit" class="w-full py-5 bg-blue-600 text-white rounded-[1.5rem] font-black shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all">သိမ်းဆည်းမည်</button>
             </form>
         </div>
     </div>
 
-    <!-- Detail Modal -->
+    <!-- Detail View Modal -->
     <div id="detail-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
-        <div class="bg-white rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div class="p-8 border-b border-slate-50 flex justify-between items-center bg-blue-600 text-white">
-                <div>
-                    <h3 class="text-xs font-black uppercase tracking-[0.2em] opacity-80 mb-1">Order Details</h3>
-                    <h2 class="text-2xl font-black">#<span id="det-id"></span></h2>
-                </div>
-                <button id="btn-close-det-modal" class="p-2 hover:bg-white/10 rounded-full transition-all text-white"><i data-lucide="x"></i></button>
+        <div class="bg-white rounded-[3rem] w-full max-w-lg shadow-2xl overflow-hidden">
+            <div class="p-8 bg-blue-600 text-white flex justify-between items-center">
+                <div><p class="text-[10px] font-black uppercase opacity-70">Order Details</p><h2 class="text-2xl font-black">#<span id="det-id"></span></h2></div>
+                <button id="btn-close-det-modal" class="p-2 hover:bg-white/10 rounded-full transition-all"><i data-lucide="x"></i></button>
             </div>
-            <div class="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
+            <div class="p-8 space-y-6 max-h-[60vh] overflow-y-auto">
                 <div class="grid grid-cols-2 gap-4">
-                    <div class="bg-slate-50 p-4 rounded-2xl">
-                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Date</p>
-                        <p id="det-date" class="font-black text-slate-700"></p>
-                    </div>
-                    <div class="bg-blue-50 p-4 rounded-2xl">
-                        <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">COD Amount</p>
-                        <p id="det-cod" class="font-black text-blue-600"></p>
-                    </div>
+                    <div class="bg-slate-50 p-4 rounded-2xl"><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Date</p><p id="det-date" class="font-black text-slate-700"></p></div>
+                    <div class="bg-blue-50 p-4 rounded-2xl"><p class="text-[9px] font-black text-blue-400 uppercase tracking-widest">COD Amount</p><p id="det-cod" class="font-black text-blue-600"></p></div>
                 </div>
                 <div class="space-y-4">
-                    <div class="flex items-start gap-4">
-                        <div class="bg-slate-50 p-3 rounded-xl text-slate-400"><i data-lucide="user" class="w-5 h-5"></i></div>
-                        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Customer</p><p id="det-customer" class="font-bold text-slate-800"></p></div>
-                    </div>
-                    <div class="flex items-start gap-4">
-                        <div class="bg-slate-50 p-3 rounded-xl text-slate-400"><i data-lucide="phone" class="w-5 h-5"></i></div>
-                        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Phone</p><p id="det-phone" class="font-bold text-slate-800"></p></div>
-                    </div>
-                    
-                    <!-- Ordered Items Detail -->
-                    <div class="bg-blue-50/50 p-5 rounded-[2rem] border border-blue-100/50">
-                        <div class="flex items-center gap-2 mb-3">
-                            <i data-lucide="shopping-bag" class="w-4 h-4 text-blue-600"></i>
-                            <p class="text-[10px] font-black text-blue-600 uppercase tracking-widest">Ordered Items</p>
-                        </div>
-                        <p id="det-items" class="font-bold text-slate-700 text-sm leading-relaxed"></p>
-                    </div>
-
-                    <div class="flex items-start gap-4">
-                        <div class="bg-slate-50 p-3 rounded-xl text-slate-400"><i data-lucide="map-pin" class="w-5 h-5"></i></div>
-                        <div><p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Address</p><p id="det-address" class="font-bold text-slate-600 text-sm"></p></div>
-                    </div>
-                    <div class="flex items-start gap-4">
-                        <div class="bg-amber-50 p-3 rounded-xl text-amber-400"><i data-lucide="sticky-note" class="w-5 h-5"></i></div>
-                        <div><p class="text-[9px] font-black text-amber-500 uppercase tracking-widest">Note</p><p id="det-note" class="font-bold text-slate-600 text-sm italic"></p></div>
-                    </div>
-                </div>
-                <div class="pt-4 flex gap-3">
-                    <div class="flex-1 bg-slate-50 py-4 px-6 rounded-2xl text-center">
-                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p>
-                        <span id="det-status" class="text-xs font-black text-slate-700"></span>
-                    </div>
-                    <div class="flex-1 bg-slate-50 py-4 px-6 rounded-2xl text-center">
-                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">COD Status</p>
-                        <span id="det-cod-status" class="text-xs font-black text-slate-700"></span>
-                    </div>
+                    <div class="flex items-start gap-3"><i data-lucide="user" class="text-slate-300 w-5 h-5"></i><div><p class="text-[9px] font-black text-slate-400 uppercase">Customer</p><p id="det-customer" class="font-bold"></p></div></div>
+                    <div class="flex items-start gap-3"><i data-lucide="phone" class="text-slate-300 w-5 h-5"></i><div><p class="text-[9px] font-black text-slate-400 uppercase">Phone</p><p id="det-phone" class="font-bold"></p></div></div>
+                    <div class="bg-blue-50/50 p-5 rounded-3xl border border-blue-100"><p class="text-[10px] font-black text-blue-600 uppercase mb-2">Items</p><p id="det-items" class="font-bold text-slate-700 text-sm"></p></div>
+                    <div class="flex items-start gap-3"><i data-lucide="map-pin" class="text-slate-300 w-5 h-5"></i><div><p class="text-[9px] font-black text-slate-400 uppercase">Address</p><p id="det-address" class="font-bold text-slate-600 text-sm"></p></div></div>
+                    <div class="flex items-start gap-3"><i data-lucide="sticky-note" class="text-slate-300 w-5 h-5"></i><div><p class="text-[9px] font-black text-slate-400 uppercase">Note</p><p id="det-note" class="font-bold text-slate-600 text-sm italic"></p></div></div>
                 </div>
             </div>
         </div>
