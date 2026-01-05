@@ -14,20 +14,18 @@
 
         // === သင်၏ Firebase Config ကို ဤနေရာတွင် ထည့်ပါ ===
         const firebaseConfig = {
-  apiKey: "AIzaSyBuSzEKFKhfPnGU0iVpoOvQQpcKIPCGjkI",
-  authDomain: "dq---tracking-number.firebaseapp.com",
-  projectId: "dq---tracking-number",
-  storageBucket: "dq---tracking-number.firebasestorage.app",
-  messagingSenderId: "335354673594",
-  appId: "1:335354673594:web:f0cfb69bb2bd4eb26fc583",
-  measurementId: "G-L8CWZF4TR8"
-};
+            apiKey: "AIzaSy...",            
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef..."
+        };
 
         // === ဝင်ရောက်ခွင့်ပြုမည့် Email များစာရင်း ===
         const ALLOWED_EMAILS = [
             'uresher@gmail.com',
-            'dqskinmm@gmail.com',
-            'partner@gmail.com'
+            'dqskinmm@gmail.com'
         ];
 
         // Initialize Firebase
@@ -60,14 +58,12 @@
         // Auth Listener
         onAuthStateChanged(auth, (currUser) => {
             if (currUser) {
-                // Email စစ်ဆေးခြင်း
                 if (ALLOWED_EMAILS.includes(currUser.email)) {
                     user = currUser;
                     authScreen.classList.add('hidden');
                     mainScreen.classList.remove('hidden');
                     loadData();
                 } else {
-                    // အကယ်၍ Email စာရင်းထဲမပါရင် ပြန်ထုတ်လိုက်မည်
                     signOut(auth);
                     errorMsg.innerText = "ဝင်ရောက်ခွင့်မရှိပါ။ Admin ထံ ဆက်သွယ်ပါ။";
                     errorMsg.classList.remove('hidden');
@@ -85,6 +81,8 @@
                 deliveries = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 renderTable();
                 updateStats();
+            }, (error) => {
+                console.error("Firestore Error:", error);
             });
         }
 
@@ -102,15 +100,15 @@
             const sortedData = [...deliveries].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             deliveryList.innerHTML = sortedData.map(item => `
                 <tr class="hover:bg-gray-50 border-b border-gray-100">
-                    <td class="px-6 py-4">
+                    <td class="px-6 py-4 text-sm">
                         <div class="font-bold text-blue-600">#${item.orderId}</div>
                         <div class="text-[10px] text-gray-400 font-bold">${item.deliveryDate}</div>
                     </td>
-                    <td class="px-6 py-4">
+                    <td class="px-6 py-4 text-sm">
                         <div class="font-bold text-gray-800">${item.customer}</div>
                         <div class="text-xs text-gray-400">${item.phone}</div>
                     </td>
-                    <td class="px-6 py-4 font-black">${(Number(item.cod) || 0).toLocaleString()} Ks</td>
+                    <td class="px-6 py-4 text-sm font-black">${(Number(item.cod) || 0).toLocaleString()} Ks</td>
                     <td class="px-6 py-4 space-y-1">
                         <button onclick="window.toggleStatus('${item.id}', 'status', '${item.status}')" class="block w-full py-1 rounded text-[10px] font-black text-white ${item.status === 'Delivered' ? 'bg-green-500' : 'bg-red-500'}">
                             ${item.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်'}
@@ -177,6 +175,7 @@
         document.getElementById('btn-add').onclick = () => {
             document.getElementById('edit-id').value = "";
             orderForm.reset();
+            document.getElementById('modal-title').innerText = "အော်ဒါအသစ်";
             document.getElementById('form-modal').classList.remove('hidden');
         };
         document.getElementById('btn-close').onclick = () => document.getElementById('form-modal').classList.add('hidden');
@@ -197,9 +196,9 @@
                 <i data-lucide="lock" class="text-white w-10 h-10"></i>
             </div>
             <h1 class="text-2xl font-black mb-2">Private Access</h1>
-            <p class="text-gray-500 mb-8">ဒီစာရင်းကိုကြည့်ရန် Google ဖြင့် Login ဝင်ပါ</p>
+            <p class="text-gray-500 mb-8 font-medium">ဒီစာရင်းကိုကြည့်ရန် Google ဖြင့် Login ဝင်ပါ</p>
             <p id="error-msg" class="hidden text-red-500 text-sm font-bold mb-4 bg-red-50 p-3 rounded-xl"></p>
-            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all">
+            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all active:scale-95">
                 Google ဖြင့် Login ဝင်မည်
             </button>
         </div>
@@ -209,23 +208,25 @@
     <div id="main-screen" class="hidden min-h-screen p-4 md:p-10 max-w-6xl mx-auto">
         <header class="flex justify-between items-center mb-10">
             <div>
-                <h1 class="text-2xl font-black text-gray-800">Delivery Tracker</h1>
+                <h1 class="text-2xl font-black text-gray-800 flex items-center gap-2">
+                   <i data-lucide="truck" class="text-blue-600"></i> Tracker
+                </h1>
                 <button id="logout" class="text-red-500 text-xs font-bold underline">Logout</button>
             </div>
-            <button id="btn-add" class="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg">အော်ဒါအသစ်</button>
+            <button id="btn-add" class="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-all active:scale-95">အော်ဒါအသစ်</button>
         </header>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                <p class="text-[10px] font-bold text-gray-400 uppercase">စုစုပေါင်း COD</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">စုစုပေါင်း COD</p>
                 <h3 id="total-cod" class="text-2xl font-black mt-1">0 Ks</h3>
             </div>
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                <p class="text-[10px] font-bold text-gray-400 uppercase">မရသေးသော COD</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">မရသေးသော COD</p>
                 <h3 id="unpaid-cod" class="text-2xl font-black text-orange-600 mt-1">0 Ks</h3>
             </div>
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                <p class="text-[10px] font-bold text-gray-400 uppercase">ပို့ဆောင်ပြီး</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">ပို့ဆောင်ပြီး</p>
                 <h3 id="delivered-count" class="text-2xl font-black text-green-600 mt-1">0 ခု</h3>
             </div>
         </div>
@@ -248,21 +249,42 @@
 
     <!-- Modal -->
     <div id="form-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden">
+        <div class="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
             <div class="p-8 border-b flex justify-between items-center bg-gray-50">
                 <h3 id="modal-title" class="text-2xl font-black">အော်ဒါအသစ်</h3>
                 <button id="btn-close" class="text-gray-400"><i data-lucide="x"></i></button>
             </div>
             <form id="order-form" class="p-8 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input type="hidden" id="edit-id">
-                <input required id="orderId" placeholder="Order ID" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
-                <input required id="customer" placeholder="ဝယ်ယူသူအမည်" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
-                <input id="phone" placeholder="ဖုန်းနံပါတ်" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
-                <input required id="cod" placeholder="COD ပမာဏ" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl">
-                <input type="date" id="deliveryDate" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
-                <input id="items" placeholder="မှာယူသည့်ပစ္စည်း" class="p-4 bg-gray-50 rounded-2xl outline-none">
-                <textarea id="address" placeholder="လိပ်စာ" class="md:col-span-2 p-4 bg-gray-50 rounded-2xl outline-none h-24"></textarea>
-                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black">သိမ်းဆည်းမည်</button>
+                <div class="flex flex-col gap-1">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">ORDER ID</label>
+                   <input required id="orderId" placeholder="ID" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex flex-col gap-1">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">ဝယ်ယူသူအမည်</label>
+                   <input required id="customer" placeholder="Name" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex flex-col gap-1">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">ဖုန်းနံပါတ်</label>
+                   <input id="phone" placeholder="09..." class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex flex-col gap-1">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">COD ပမာဏ</label>
+                   <input required id="cod" placeholder="Amount" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="flex flex-col gap-1">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">ရက်စွဲ</label>
+                   <input type="date" id="deliveryDate" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
+                </div>
+                <div class="flex flex-col gap-1">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">မှာယူသည့်ပစ္စည်း</label>
+                   <input id="items" placeholder="Items" class="p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div class="md:col-span-2 flex flex-col gap-1">
+                    <label class="text-[10px] font-bold text-gray-400 ml-2">လိပ်စာ</label>
+                    <textarea id="address" placeholder="Address..." class="p-4 bg-gray-50 rounded-2xl outline-none h-24 resize-none focus:ring-2 focus:ring-blue-500"></textarea>
+                </div>
+                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all">သိမ်းဆည်းမည်</button>
             </form>
         </div>
     </div>
