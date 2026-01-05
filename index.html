@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery & COD Tracker (Private)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+
+        // === သင်၏ Firebase Config ကို ဤနေရာတွင် ထည့်ပါ ===
+        const firebaseConfig = {
+  apiKey: "AIzaSyBuSzEKFKhfPnGU0iVpoOvQQpcKIPCGjkI",
+  authDomain: "dq---tracking-number.firebaseapp.com",
+  projectId: "dq---tracking-number",
+  storageBucket: "dq---tracking-number.firebasestorage.app",
+  messagingSenderId: "335354673594",
+  appId: "1:335354673594:web:f0cfb69bb2bd4eb26fc583",
+  measurementId: "G-L8CWZF4TR8"
+};
+
+        // === ဝင်ရောက်ခွင့်ပြုမည့် Email များစာရင်း ===
+        const ALLOWED_EMAILS = [
+            'your-email@gmail.com',
+            'staff1@gmail.com',
+            'partner@gmail.com'
+        ];
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const provider = new GoogleAuthProvider();
+
+        const COLLECTION_NAME = 'deliveries'; 
+
+        // App State
+        let user = null;
+        let deliveries = [];
+
+        // Elements
+        const authScreen = document.getElementById('auth-screen');
+        const mainScreen = document.getElementById('main-screen');
+        const errorMsg = document.getElementById('error-msg');
+        const deliveryList = document.getElementById('delivery-list');
+        const orderForm = document.getElementById('order-form');
+        const totalCodEl = document.getElementById('total-cod');
+        const unpaidCodEl = document.getElementById('unpaid-cod');
+        const deliveredCountEl = document.getElementById('delivered-count');
+
+        const mmToEn = (str) => {
+            const mmNums = ['၀', '၁', '၂', '၃', '၄', '၅', '၆', '၇', '၈', '၉'];
+            return str.replace(/[၀-၉]/g, s => mmNums.indexOf(s));
+        };
+
+        // Auth Listener
+        onAuthStateChanged(auth, (currUser) => {
+            if (currUser) {
+                // Email စစ်ဆေးခြင်း
+                if (ALLOWED_EMAILS.includes(currUser.email)) {
+                    user = currUser;
+                    authScreen.classList.add('hidden');
+                    mainScreen.classList.remove('hidden');
+                    loadData();
+                } else {
+                    // အကယ်၍ Email စာရင်းထဲမပါရင် ပြန်ထုတ်လိုက်မည်
+                    signOut(auth);
+                    errorMsg.innerText = "ဝင်ရောက်ခွင့်မရှိပါ။ Admin ထံ ဆက်သွယ်ပါ။";
+                    errorMsg.classList.remove('hidden');
+                }
+            } else {
+                user = null;
+                authScreen.classList.remove('hidden');
+                mainScreen.classList.add('hidden');
+            }
+        });
+
+        function loadData() {
+            const colRef = collection(db, COLLECTION_NAME); 
+            onSnapshot(colRef, (snapshot) => {
+                deliveries = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                renderTable();
+                updateStats();
+            });
+        }
+
+        function updateStats() {
+            const total = deliveries.reduce((s, i) => s + (Number(i.cod) || 0), 0);
+            const unpaid = deliveries.filter(d => d.codStatus !== 'Paid').reduce((s, i) => s + (Number(i.cod) || 0), 0);
+            const delivered = deliveries.filter(d => d.status === 'Delivered').length;
+
+            totalCodEl.innerText = `${total.toLocaleString()} Ks`;
+            unpaidCodEl.innerText = `${unpaid.toLocaleString()} Ks`;
+            deliveredCountEl.innerText = `${delivered} ခု`;
+        }
+
+        function renderTable() {
+            const sortedData = [...deliveries].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+            deliveryList.innerHTML = sortedData.map(item => `
+                <tr class="hover:bg-gray-50 border-b border-gray-100">
+                    <td class="px-6 py-4">
+                        <div class="font-bold text-blue-600">#${item.orderId}</div>
+                        <div class="text-[10px] text-gray-400 font-bold">${item.deliveryDate}</div>
+                    </td>
+                    <td class="px-6 py-4">
+                        <div class="font-bold text-gray-800">${item.customer}</div>
+                        <div class="text-xs text-gray-400">${item.phone}</div>
+                    </td>
+                    <td class="px-6 py-4 font-black">${(Number(item.cod) || 0).toLocaleString()} Ks</td>
+                    <td class="px-6 py-4 space-y-1">
+                        <button onclick="window.toggleStatus('${item.id}', 'status', '${item.status}')" class="block w-full py-1 rounded text-[10px] font-black text-white ${item.status === 'Delivered' ? 'bg-green-500' : 'bg-red-500'}">
+                            ${item.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်'}
+                        </button>
+                        <button onclick="window.toggleStatus('${item.id}', 'codStatus', '${item.codStatus}')" class="block w-full py-1 rounded text-[10px] font-black border ${item.codStatus === 'Paid' ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white text-gray-400 border-gray-100'}">
+                            COD ${item.codStatus === 'Paid' ? 'ရှင်းပြီး' : 'မရှင်းသေး'}
+                        </button>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                         <div class="flex gap-2 justify-center">
+                            <button onclick="window.editOrder('${item.id}')" class="p-2 bg-gray-100 rounded-lg text-amber-600"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+                            <button onclick="window.deleteOrder('${item.id}')" class="p-2 bg-gray-100 rounded-lg text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+                         </div>
+                    </td>
+                </tr>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        window.toggleStatus = async (id, field, current) => {
+            const docRef = doc(db, COLLECTION_NAME, id);
+            const newValue = field === 'status' ? (current === 'Pending' ? 'Delivered' : 'Pending') : (current === 'Paid' ? 'Unpaid' : 'Paid');
+            await updateDoc(docRef, { [field]: newValue });
+        };
+
+        window.deleteOrder = async (id) => {
+            if(confirm('ဖျက်ရန် သေချာပါသလား?')) { await deleteDoc(doc(db, COLLECTION_NAME, id)); }
+        };
+
+        window.editOrder = (id) => {
+            const item = deliveries.find(d => d.id === id);
+            if(!item) return;
+            document.getElementById('edit-id').value = item.id;
+            document.getElementById('orderId').value = item.orderId;
+            document.getElementById('customer').value = item.customer;
+            document.getElementById('phone').value = item.phone;
+            document.getElementById('cod').value = item.cod;
+            document.getElementById('address').value = item.address;
+            document.getElementById('deliveryDate').value = item.deliveryDate;
+            document.getElementById('modal-title').innerText = "စာရင်းပြင်ရန်";
+            document.getElementById('form-modal').classList.remove('hidden');
+        };
+
+        orderForm.onsubmit = async (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('edit-id').value;
+            const data = {
+                orderId: document.getElementById('orderId').value,
+                customer: document.getElementById('customer').value,
+                phone: document.getElementById('phone').value,
+                cod: mmToEn(document.getElementById('cod').value),
+                address: document.getElementById('address').value,
+                deliveryDate: document.getElementById('deliveryDate').value,
+                status: 'Pending',
+                codStatus: 'Unpaid',
+                timestamp: Date.now()
+            };
+            if(editId) { await updateDoc(doc(db, COLLECTION_NAME, editId), data); } 
+            else { await addDoc(collection(db, COLLECTION_NAME), data); }
+            orderForm.reset();
+            document.getElementById('form-modal').classList.add('hidden');
+        };
+
+        document.getElementById('btn-add').onclick = () => {
+            document.getElementById('edit-id').value = "";
+            orderForm.reset();
+            document.getElementById('form-modal').classList.remove('hidden');
+        };
+        document.getElementById('btn-close').onclick = () => document.getElementById('form-modal').classList.add('hidden');
+        document.getElementById('login-google').onclick = () => {
+            errorMsg.classList.add('hidden');
+            signInWithPopup(auth, provider);
+        };
+        document.getElementById('logout').onclick = () => signOut(auth);
+
+    </script>
+</head>
+<body class="bg-gray-50 text-slate-900">
+
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="h-screen flex items-center justify-center p-4">
+        <div class="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full text-center border border-gray-100">
+            <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                <i data-lucide="lock" class="text-white w-10 h-10"></i>
+            </div>
+            <h1 class="text-2xl font-black mb-2">Private Access</h1>
+            <p class="text-gray-500 mb-8">ဒီစာရင်းကိုကြည့်ရန် Google ဖြင့် Login ဝင်ပါ</p>
+            <p id="error-msg" class="hidden text-red-500 text-sm font-bold mb-4 bg-red-50 p-3 rounded-xl"></p>
+            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all">
+                Google ဖြင့် Login ဝင်မည်
+            </button>
+        </div>
+    </div>
+
+    <!-- Main Screen -->
+    <div id="main-screen" class="hidden min-h-screen p-4 md:p-10 max-w-6xl mx-auto">
+        <header class="flex justify-between items-center mb-10">
+            <div>
+                <h1 class="text-2xl font-black text-gray-800">Delivery Tracker</h1>
+                <button id="logout" class="text-red-500 text-xs font-bold underline">Logout</button>
+            </div>
+            <button id="btn-add" class="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg">အော်ဒါအသစ်</button>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+            <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <p class="text-[10px] font-bold text-gray-400 uppercase">စုစုပေါင်း COD</p>
+                <h3 id="total-cod" class="text-2xl font-black mt-1">0 Ks</h3>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <p class="text-[10px] font-bold text-gray-400 uppercase">မရသေးသော COD</p>
+                <h3 id="unpaid-cod" class="text-2xl font-black text-orange-600 mt-1">0 Ks</h3>
+            </div>
+            <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                <p class="text-[10px] font-bold text-gray-400 uppercase">ပို့ဆောင်ပြီး</p>
+                <h3 id="delivered-count" class="text-2xl font-black text-green-600 mt-1">0 ခု</h3>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
+            <table class="w-full text-left">
+                <thead class="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase">
+                    <tr>
+                        <th class="px-8 py-5">Order</th>
+                        <th class="px-8 py-5">Customer</th>
+                        <th class="px-8 py-5">Amount</th>
+                        <th class="px-8 py-5">Status</th>
+                        <th class="px-8 py-5 text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="delivery-list" class="divide-y divide-gray-50"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="form-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden">
+            <div class="p-8 border-b flex justify-between items-center bg-gray-50">
+                <h3 id="modal-title" class="text-2xl font-black">အော်ဒါအသစ်</h3>
+                <button id="btn-close" class="text-gray-400"><i data-lucide="x"></i></button>
+            </div>
+            <form id="order-form" class="p-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input type="hidden" id="edit-id">
+                <input required id="orderId" placeholder="Order ID" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
+                <input required id="customer" placeholder="ဝယ်ယူသူအမည်" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
+                <input id="phone" placeholder="ဖုန်းနံပါတ်" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
+                <input required id="cod" placeholder="COD ပမာဏ" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl">
+                <input type="date" id="deliveryDate" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
+                <input id="items" placeholder="မှာယူသည့်ပစ္စည်း" class="p-4 bg-gray-50 rounded-2xl outline-none">
+                <textarea id="address" placeholder="လိပ်စာ" class="md:col-span-2 p-4 bg-gray-50 rounded-2xl outline-none h-24"></textarea>
+                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black">သိမ်းဆည်းမည်</button>
+            </form>
+        </div>
+    </div>
+    <script>lucide.createIcons();</script>
+</body>
+</html>
