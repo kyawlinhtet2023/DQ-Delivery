@@ -22,62 +22,42 @@
             measurementId: "G-L8CWZF4TR8"
         };
 
-        const ALLOWED_EMAILS = [
-            'uresher@gmail.com',
-            'dqskinmm@gmail.com'
-        ];
-
+        const ALLOWED_EMAILS = ['uresher@gmail.com', 'dqskinmm@gmail.com'];
         const ADMIN_ACCESS_CODE = "dqskinmdyygn"; 
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
-
         const COLLECTION_NAME = 'deliveries'; 
 
         // App State
         let user = null;
         let deliveries = [];
         let currentTab = 'All'; // All, Pending, Delivered
-        let startDate = '';
-        let endDate = '';
+        let startDateFilter = '';
+        let endDateFilter = '';
 
-        // Elements
         const authScreen = document.getElementById('auth-screen');
         const mainScreen = document.getElementById('main-screen');
         const errorMsg = document.getElementById('error-msg');
         const loadingEl = document.getElementById('loading-spinner');
         const deliveryList = document.getElementById('delivery-list');
         const orderForm = document.getElementById('order-form');
-        const totalCodEl = document.getElementById('total-cod');
-        const unpaidCodEl = document.getElementById('unpaid-cod');
-        const deliveredCountEl = document.getElementById('delivered-count');
 
         const mmToEn = (str) => {
             const mmNums = ['၀', '၁', '၂', '၃', '၄', '၅', '၆', '၇', '၈', '၉'];
             return str.replace(/[၀-၉]/g, s => mmNums.indexOf(s));
         };
 
-        // Auth Listener
         onAuthStateChanged(auth, (currUser) => {
             loadingEl.classList.add('hidden');
             if (currUser) {
-                if (ALLOWED_EMAILS.includes(currUser.email)) {
-                    loginSuccess(currUser);
-                } else {
-                    signOut(auth);
-                    showError("ဝင်ရောက်ခွင့်မရှိပါ။ Admin Email စာရင်းဝင် ဖြစ်ရပါမည်။");
-                }
+                if (ALLOWED_EMAILS.includes(currUser.email)) { loginSuccess(currUser); }
+                else { signOut(auth); showError("ဝင်ရောက်ခွင့်မရှိပါ။"); }
             } else {
-                const isAuth = sessionStorage.getItem('admin_authenticated');
-                if (isAuth === 'true') {
-                    loginSuccess({ email: 'Admin (Access Code)' });
-                } else {
-                    user = null;
-                    authScreen.classList.remove('hidden');
-                    mainScreen.classList.add('hidden');
-                }
+                if (sessionStorage.getItem('admin_authenticated') === 'true') { loginSuccess({ email: 'Admin' }); }
+                else { authScreen.classList.remove('hidden'); mainScreen.classList.add('hidden'); }
             }
         });
 
@@ -95,13 +75,10 @@
         }
 
         function loadData() {
-            const colRef = collection(db, COLLECTION_NAME); 
-            onSnapshot(colRef, (snapshot) => {
+            onSnapshot(collection(db, COLLECTION_NAME), (snapshot) => {
                 deliveries = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
                 renderTable();
                 updateStats();
-            }, (error) => {
-                console.error("Firestore Error:", error);
             });
         }
 
@@ -109,53 +86,48 @@
             const total = deliveries.reduce((s, i) => s + (Number(i.cod) || 0), 0);
             const unpaid = deliveries.filter(d => d.codStatus !== 'Paid').reduce((s, i) => s + (Number(i.cod) || 0), 0);
             const delivered = deliveries.filter(d => d.status === 'Delivered').length;
-
-            totalCodEl.innerText = `${total.toLocaleString()} Ks`;
-            unpaidCodEl.innerText = `${unpaid.toLocaleString()} Ks`;
-            deliveredCountEl.innerText = `${delivered} ခု`;
+            document.getElementById('total-cod').innerText = `${total.toLocaleString()} Ks`;
+            document.getElementById('unpaid-cod').innerText = `${unpaid.toLocaleString()} Ks`;
+            document.getElementById('delivered-count').innerText = `${delivered} ခု`;
         }
 
-        // Tab and Filter Change Handlers
+        // Filter Logic
         window.setTab = (tab) => {
             currentTab = tab;
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.remove('bg-blue-600', 'text-white');
                 btn.classList.add('bg-white', 'text-gray-500');
             });
-            document.getElementById(`tab-${tab}`).classList.add('bg-blue-600', 'text-white');
-            document.getElementById(`tab-${tab}`).classList.remove('bg-white', 'text-gray-500');
+            const activeBtn = document.getElementById(`tab-${tab}`);
+            activeBtn.classList.add('bg-blue-600', 'text-white');
+            activeBtn.classList.remove('bg-white', 'text-gray-500');
             renderTable();
         };
 
-        window.filterByDate = () => {
-            startDate = document.getElementById('start-date').value;
-            endDate = document.getElementById('end-date').value;
+        window.handleDateFilter = () => {
+            startDateFilter = document.getElementById('filter-start-date').value;
+            endDateFilter = document.getElementById('filter-end-date').value;
             renderTable();
         };
 
-        window.resetDateFilter = () => {
-            document.getElementById('start-date').value = '';
-            document.getElementById('end-date').value = '';
-            startDate = '';
-            endDate = '';
+        window.clearDateFilter = () => {
+            document.getElementById('filter-start-date').value = '';
+            document.getElementById('filter-end-date').value = '';
+            startDateFilter = '';
+            endDateFilter = '';
             renderTable();
         };
 
         function renderTable() {
-            const searchInput = document.getElementById('search-box').value.toLowerCase();
+            const searchStr = document.getElementById('search-input').value.toLowerCase();
             
             let filtered = deliveries.filter(item => {
-                // Search Filter
-                const matchesSearch = item.orderId.toLowerCase().includes(searchInput) || 
-                                     item.customer.toLowerCase().includes(searchInput);
+                const matchesSearch = item.orderId.toLowerCase().includes(searchStr) || item.customer.toLowerCase().includes(searchStr);
+                const matchesTab = currentTab === 'All' ? true : item.status === currentTab;
                 
-                // Tab Filter
-                const matchesTab = currentTab === 'All' || item.status === currentTab;
-                
-                // Date Filter
-                const itemDate = item.deliveryDate || '';
-                const matchesDate = (!startDate || itemDate >= startDate) && 
-                                   (!endDate || itemDate <= endDate);
+                let matchesDate = true;
+                if (startDateFilter && item.deliveryDate < startDateFilter) matchesDate = false;
+                if (endDateFilter && item.deliveryDate > endDateFilter) matchesDate = false;
 
                 return matchesSearch && matchesTab && matchesDate;
             });
@@ -189,22 +161,16 @@
                     </td>
                 </tr>
             `).join('');
-
-            if (sortedData.length === 0) {
-                deliveryList.innerHTML = `<tr><td colspan="5" class="px-6 py-20 text-center text-gray-400 font-bold italic">ဒေတာ မရှိသေးပါ။</td></tr>`;
-            }
+            if(sortedData.length === 0) deliveryList.innerHTML = `<tr><td colspan="5" class="py-10 text-center text-gray-400">ရှာမတွေ့ပါ။</td></tr>`;
             lucide.createIcons();
         }
 
         window.toggleStatus = async (id, field, current) => {
-            const docRef = doc(db, COLLECTION_NAME, id);
             const newValue = field === 'status' ? (current === 'Pending' ? 'Delivered' : 'Pending') : (current === 'Paid' ? 'Unpaid' : 'Paid');
-            await updateDoc(docRef, { [field]: newValue });
+            await updateDoc(doc(db, COLLECTION_NAME, id), { [field]: newValue });
         };
 
-        window.deleteOrder = async (id) => {
-            if(confirm('ဖျက်ရန် သေချာပါသလား?')) { await deleteDoc(doc(db, COLLECTION_NAME, id)); }
-        };
+        window.deleteOrder = async (id) => { if(confirm('ဖျက်ရန် သေချာပါသလား?')) await deleteDoc(doc(db, COLLECTION_NAME, id)); };
 
         window.editOrder = (id) => {
             const item = deliveries.find(d => d.id === id);
@@ -232,21 +198,11 @@
                 deliveryDate: document.getElementById('deliveryDate').value,
                 timestamp: Date.now()
             };
-            if(editId) { 
-                await updateDoc(doc(db, COLLECTION_NAME, editId), data); 
-            } else { 
-                await addDoc(collection(db, COLLECTION_NAME), {
-                    ...data,
-                    status: 'Pending',
-                    codStatus: 'Unpaid'
-                }); 
-            }
+            if(editId) { await updateDoc(doc(db, COLLECTION_NAME, editId), data); } 
+            else { await addDoc(collection(db, COLLECTION_NAME), { ...data, status: 'Pending', codStatus: 'Unpaid' }); }
             orderForm.reset();
             document.getElementById('form-modal').classList.add('hidden');
         };
-
-        // Attach Search Handler
-        document.getElementById('search-box').addEventListener('input', renderTable);
 
         document.getElementById('btn-add').onclick = () => {
             document.getElementById('edit-id').value = "";
@@ -256,21 +212,17 @@
             document.getElementById('form-modal').classList.remove('hidden');
         };
         document.getElementById('btn-close').onclick = () => document.getElementById('form-modal').classList.add('hidden');
-        
+        document.getElementById('search-input').oninput = renderTable;
+
         document.getElementById('login-google').onclick = async () => {
-            errorMsg.classList.add('hidden');
             loadingEl.classList.remove('hidden');
-            try { await signInWithPopup(auth, provider); } catch (err) {
-                loadingEl.classList.add('hidden');
-                showError("Google Login ဝင်မရပါ။ Access Code ကို သုံးကြည့်ပါ။");
-            }
+            try { await signInWithPopup(auth, provider); } catch (err) { loadingEl.classList.add('hidden'); showError("Error."); }
         };
 
         document.getElementById('btn-access-code').onclick = () => {
-            const code = prompt("Admin Access Code:");
-            if (code === ADMIN_ACCESS_CODE) {
+            if (prompt("Access Code:") === ADMIN_ACCESS_CODE) {
                 sessionStorage.setItem('admin_authenticated', 'true');
-                loginSuccess({ email: 'Admin (Access Code)' });
+                loginSuccess({ email: 'Admin' });
             }
         };
 
@@ -281,28 +233,20 @@
         };
 
         window.exportToCSV = () => {
-            if (deliveries.length === 0) return alert("ထုတ်ယူရန် ဒေတာမရှိပါ။");
-            const headers = ["Order ID", "Date", "Customer", "Phone", "COD Amount", "Delivery Status", "COD Status", "Address"];
-            const rows = deliveries.map(item => [
-                `#${item.orderId}`, item.deliveryDate, item.customer, item.phone, item.cod,
-                item.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်',
-                item.codStatus === 'Paid' ? 'ရှင်းပြီး' : 'မရှင်းသေး',
-                `"${(item.address || '').replace(/\n/g, ' ')}"`
-            ]);
-            let csvContent = "\ufeff" + headers.join(",") + "\n" + rows.map(r => r.join(",")).join("\n");
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const headers = ["Order ID", "Date", "Customer", "Phone", "COD", "Status", "COD Status"];
+            const rows = deliveries.map(i => [`#${i.orderId}`, i.deliveryDate, i.customer, i.phone, i.cod, i.status, i.codStatus]);
+            let csv = "\ufeff" + headers.join(",") + "\n" + rows.map(r => r.join(",")).join("\n");
             const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.download = `report_${new Date().toISOString().split('T')[0]}.csv`;
+            link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+            link.download = `report.csv`;
             link.click();
         };
-
     </script>
 </head>
 <body class="bg-gray-50 text-slate-900 font-sans">
 
     <!-- Auth Screen -->
-    <div id="auth-screen" class="h-screen flex items-center justify-center p-4">
+    <div id="auth-screen" class="hidden h-screen flex items-center justify-center p-4">
         <div class="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full text-center border border-gray-100">
             <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 relative">
                 <i data-lucide="lock" class="text-white w-10 h-10"></i>
@@ -311,20 +255,12 @@
                 </div>
             </div>
             <h1 class="text-2xl font-black mb-2">Private Access</h1>
-            <p class="text-gray-500 mb-8 font-medium">စာရင်းကြည့်ရန် Login ဝင်ပါ</p>
             <p id="error-msg" class="hidden text-red-500 text-sm font-bold mb-4 bg-red-50 p-3 rounded-xl border border-red-100"></p>
-            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all active:scale-95 shadow-sm mb-4">
+            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all shadow-sm mb-4">
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5" alt="google">
-                Google ဖြင့် Login ဝင်မည်
+                Google Login
             </button>
-            <div class="relative flex items-center gap-2 mb-4">
-                <div class="flex-1 h-px bg-gray-100"></div>
-                <span class="text-[10px] font-bold text-gray-300 uppercase">OR</span>
-                <div class="flex-1 h-px bg-gray-100"></div>
-            </div>
-            <button id="btn-access-code" class="w-full py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 rounded-xl transition-colors">
-                Access Code ဖြင့် ဝင်မည်
-            </button>
+            <button id="btn-access-code" class="w-full py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 rounded-xl">Access Code ဖြင့်ဝင်ရန်</button>
         </div>
     </div>
 
@@ -338,57 +274,57 @@
                 <button id="logout" class="text-red-500 text-xs font-bold underline">Logout</button>
             </div>
             <div class="flex gap-2">
-                <button onclick="window.exportToCSV()" class="flex items-center gap-2 bg-white border border-gray-200 text-gray-600 px-5 py-3 rounded-2xl font-bold hover:bg-gray-50 transition-all active:scale-95">
-                    <i data-lucide="download" class="w-4 h-4"></i> Excel ထုတ်မည်
+                <button onclick="window.exportToCSV()" class="bg-white border border-gray-200 text-gray-600 px-5 py-3 rounded-2xl font-bold flex items-center gap-2">
+                    <i data-lucide="download" class="w-4 h-4"></i> Excel
                 </button>
-                <button id="btn-add" class="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg hover:bg-blue-700 transition-all active:scale-95">အော်ဒါအသစ်</button>
+                <button id="btn-add" class="bg-blue-600 text-white px-6 py-3 rounded-2xl font-bold shadow-lg">အော်ဒါအသစ်</button>
             </div>
         </header>
 
         <!-- Stats -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">စုစုပေါင်း COD</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase">စုစုပေါင်း COD</p>
                 <h3 id="total-cod" class="text-2xl font-black mt-1">0 Ks</h3>
             </div>
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">မရသေးသော COD</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase">မရှင်းရသေးသော COD</p>
                 <h3 id="unpaid-cod" class="text-2xl font-black text-orange-600 mt-1">0 Ks</h3>
             </div>
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">ပို့ဆောင်ပြီး</p>
+                <p class="text-[10px] font-bold text-gray-400 uppercase">ပို့ဆောင်ပြီး</p>
                 <h3 id="delivered-count" class="text-2xl font-black text-green-600 mt-1">0 ခု</h3>
             </div>
         </div>
 
-        <!-- Filters & Tabs Section -->
-        <div class="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm mb-6 flex flex-col gap-6">
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+        <!-- Filter & Search Controls -->
+        <div class="bg-white p-6 rounded-[2.5rem] border border-gray-100 shadow-sm mb-6 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-4">
                 <!-- Tabs -->
-                <div class="flex bg-gray-100 p-1 rounded-2xl w-full lg:w-auto">
-                    <button id="tab-All" onclick="setTab('All')" class="tab-btn flex-1 lg:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all bg-blue-600 text-white shadow-sm">အားလုံး</button>
-                    <button id="tab-Pending" onclick="setTab('Pending')" class="tab-btn flex-1 lg:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all text-gray-500 hover:text-gray-700">ပို့ရန်ကျန်</button>
-                    <button id="tab-Delivered" onclick="setTab('Delivered')" class="tab-btn flex-1 lg:flex-none px-6 py-2.5 rounded-xl text-xs font-black transition-all text-gray-500 hover:text-gray-700">ပို့ပြီးသား</button>
+                <div class="flex bg-gray-100 p-1 rounded-2xl">
+                    <button id="tab-All" onclick="setTab('All')" class="tab-btn px-6 py-2 rounded-xl text-xs font-black bg-blue-600 text-white">အားလုံး</button>
+                    <button id="tab-Pending" onclick="setTab('Pending')" class="tab-btn px-6 py-2 rounded-xl text-xs font-black text-gray-500">ပို့ရန်ကျန်</button>
+                    <button id="tab-Delivered" onclick="setTab('Delivered')" class="tab-btn px-6 py-2 rounded-xl text-xs font-black text-gray-500">ပို့ပြီး</button>
                 </div>
 
-                <!-- Date Range Filter -->
-                <div class="flex items-center gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100 w-full lg:w-auto overflow-hidden">
-                    <i data-lucide="calendar" class="w-4 h-4 text-gray-400 ml-2"></i>
-                    <input type="date" id="start-date" onchange="filterByDate()" class="bg-transparent text-[11px] font-bold outline-none border-none">
-                    <span class="text-gray-300">to</span>
-                    <input type="date" id="end-date" onchange="filterByDate()" class="bg-transparent text-[11px] font-bold outline-none border-none">
-                    <button onclick="resetDateFilter()" class="p-1 hover:bg-gray-200 rounded-full"><i data-lucide="refresh-ccw" class="w-3 h-3 text-gray-500"></i></button>
+                <!-- Date Filter -->
+                <div class="flex items-center gap-2 bg-gray-50 p-2 rounded-2xl border border-gray-100">
+                    <input type="date" id="filter-start-date" onchange="handleDateFilter()" class="bg-transparent text-[11px] font-bold outline-none">
+                    <span class="text-gray-400">to</span>
+                    <input type="date" id="filter-end-date" onchange="handleDateFilter()" class="bg-transparent text-[11px] font-bold outline-none">
+                    <button onclick="clearDateFilter()" class="p-1 hover:bg-gray-200 rounded-full"><i data-lucide="refresh-cw" class="w-3 h-3"></i></button>
                 </div>
             </div>
 
-            <div class="relative w-full">
-                <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"></i>
-                <input type="text" id="search-box" placeholder="Order ID သို့မဟုတ် အမည်ဖြင့် ရှာရန်..." class="w-full bg-gray-50 border border-gray-100 pl-12 pr-4 py-4 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
+            <!-- Search -->
+            <div class="relative">
+                <i data-lucide="search" class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i>
+                <input id="search-input" type="text" placeholder="Order ID (သို့) ဝယ်ယူသူအမည်ဖြင့်ရှာရန်..." class="w-full pl-12 pr-4 py-4 bg-gray-50 rounded-2xl outline-none border border-gray-100 font-bold focus:ring-2 focus:ring-blue-500">
             </div>
         </div>
 
         <!-- Table -->
-        <div class="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto mb-20">
+        <div class="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
             <table class="w-full text-left min-w-[600px]">
                 <thead class="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase">
                     <tr>
@@ -406,38 +342,38 @@
 
     <!-- Form Modal -->
     <div id="form-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+        <div class="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden">
             <div class="p-8 border-b flex justify-between items-center bg-gray-50">
-                <h3 id="modal-title" class="text-2xl font-black">အော်ဒါအသစ်</h3>
-                <button id="btn-close" class="text-gray-400 p-2 hover:bg-gray-200 rounded-full transition-colors"><i data-lucide="x"></i></button>
+                <h3 id="modal-title" class="text-2xl font-black text-gray-800">အော်ဒါအသစ်</h3>
+                <button id="btn-close" class="text-gray-400 p-2 hover:bg-gray-200 rounded-full"><i data-lucide="x"></i></button>
             </div>
             <form id="order-form" class="p-8 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input type="hidden" id="edit-id">
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">ORDER ID</label>
-                   <input required id="orderId" placeholder="Order ID" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">ORDER ID</label>
+                   <input required id="orderId" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Customer Name</label>
-                   <input required id="customer" placeholder="ဝယ်ယူသူအမည်" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">Customer Name</label>
+                   <input required id="customer" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Phone</label>
-                   <input id="phone" placeholder="09..." class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">Phone</label>
+                   <input id="phone" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">COD Amount</label>
-                   <input required id="cod" placeholder="ကျသင့်ငွေ" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">COD Amount</label>
+                   <input required id="cod" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Delivery Date</label>
+                   <label class="text-[10px] font-bold text-gray-400 ml-2">Delivery Date</label>
                    <input type="date" id="deliveryDate" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
                 </div>
                 <div class="md:col-span-2 flex flex-col gap-1">
-                    <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Address</label>
-                    <textarea id="address" placeholder="လိပ်စာ..." class="p-4 bg-gray-50 rounded-2xl outline-none h-24 resize-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    <label class="text-[10px] font-bold text-gray-400 ml-2">Address</label>
+                    <textarea id="address" class="p-4 bg-gray-50 rounded-2xl outline-none h-24 resize-none font-bold"></textarea>
                 </div>
-                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all mt-4">သိမ်းဆည်းမည်</button>
+                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 transition-all">သိမ်းဆည်းမည်</button>
             </form>
         </div>
     </div>
