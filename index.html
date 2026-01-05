@@ -3,9 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delivery & COD Tracker (Branch Selection)</title>
+    <title>Delivery & COD Tracker (Export to Excel)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
@@ -166,6 +168,31 @@
             lucide.createIcons();
         }
 
+        // Export Function
+        window.exportToExcel = () => {
+            const dataToExport = deliveries
+                .filter(d => d.branch === currentBranch)
+                .map(item => ({
+                    'Date': item.deliveryDate,
+                    'Order ID': item.orderId,
+                    'Customer Name': item.customer,
+                    'Phone': item.phone,
+                    'Address': item.address,
+                    'COD Amount': Number(item.cod),
+                    'Delivery Status': item.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်',
+                    'COD Status': item.codStatus === 'Paid' ? 'ရှင်းပြီး' : 'မရှင်းသေး',
+                    'Note': item.note
+                }));
+
+            const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, currentBranch);
+            
+            // File name with branch and date
+            const fileName = `DQ_${currentBranch}_${new Date().toLocaleDateString()}.xlsx`;
+            XLSX.writeFile(workbook, fileName);
+        };
+
         window.updateField = async (id, field, value) => {
             await updateDoc(doc(db, COLLECTION_NAME, id), { [field]: value });
         };
@@ -217,7 +244,6 @@
 </head>
 <body class="bg-[#F8FAFC] text-slate-900 min-h-screen font-sans">
 
-    <!-- Auth Screen -->
     <div id="auth-screen" class="hidden fixed inset-0 flex items-center justify-center p-6">
         <div class="bg-white p-12 rounded-[3rem] shadow-2xl shadow-blue-100 border border-blue-50 max-w-sm w-full text-center">
             <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-blue-200">
@@ -233,7 +259,6 @@
         </div>
     </div>
 
-    <!-- Branch Selection Screen -->
     <div id="branch-selection-screen" class="hidden fixed inset-0 flex items-center justify-center p-6 bg-[#F8FAFC]">
         <div class="max-w-md w-full text-center">
             <h1 class="text-3xl font-black text-slate-800 mb-2">မင်္ဂလာပါ</h1>
@@ -269,7 +294,6 @@
         </div>
     </div>
 
-    <!-- Main Content Screen -->
     <div id="main-screen" class="hidden p-4 md:p-10 max-w-6xl mx-auto">
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
             <div class="space-y-2">
@@ -285,6 +309,10 @@
                 </div>
             </div>
             <div class="flex items-center gap-3">
+                <button onclick="exportToExcel()" class="flex items-center gap-2 px-5 py-4 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-2xl font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm">
+                    <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
+                    <span class="hidden sm:inline">စာရင်းထုတ်ရန် (Excel)</span>
+                </button>
                 <button id="btn-logout" class="p-3 bg-white border border-slate-100 text-slate-400 rounded-2xl hover:text-red-500 transition-colors shadow-sm">
                     <i data-lucide="log-out" class="w-5 h-5"></i>
                 </button>
@@ -294,7 +322,6 @@
             </div>
         </header>
 
-        <!-- Summary Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
             <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-6">
                 <div class="bg-blue-50 p-5 rounded-2xl text-blue-600"><i data-lucide="banknote" class="w-8 h-8"></i></div>
@@ -312,7 +339,6 @@
             </div>
         </div>
 
-        <!-- Filter Bar -->
         <div class="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center">
             <div class="flex bg-slate-50 p-1 rounded-2xl w-full md:w-auto">
                 <button id="tab-All" onclick="setTab('All')" class="tab-btn px-6 py-2 rounded-xl text-xs font-black bg-slate-800 text-white shadow-lg transition-all">အားလုံး</button>
@@ -325,7 +351,6 @@
             </div>
         </div>
 
-        <!-- Data Table -->
         <div class="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="w-full text-left">
@@ -344,7 +369,6 @@
         </div>
     </div>
 
-    <!-- Add Modal Updated with Address & Note -->
     <div id="modal" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
             <div class="px-10 py-6 border-b border-slate-50 flex justify-between items-center sticky top-0 bg-white z-10">
@@ -369,7 +393,6 @@
                     <input id="f-phone" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
                 </div>
                 
-                <!-- New Fields: Address & Note -->
                 <div class="col-span-2 space-y-1.5">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address (လိပ်စာ)</label>
                     <textarea id="f-address" rows="2" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all resize-none"></textarea>
