@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delivery & COD Tracker (Export to Excel)</title>
+    <title>DQ Tracking & Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -36,14 +36,19 @@
         let deliveries = [];
         let currentBranch = null; 
         let currentTab = 'All';
+        
+        // Pagination & Filter States
+        let currentPage = 1;
+        const rowsPerPage = 50;
+        let dateFrom = '';
+        let dateTo = '';
 
         const authScreen = document.getElementById('auth-screen');
         const branchScreen = document.getElementById('branch-selection-screen');
         const mainScreen = document.getElementById('main-screen');
-        const loadingSpinner = document.getElementById('loading-spinner');
 
         onAuthStateChanged(auth, (currUser) => {
-            loadingSpinner.classList.add('hidden');
+            document.getElementById('loading-spinner').classList.add('hidden');
             if (currUser && ALLOWED_EMAILS.includes(currUser.email)) {
                 handleLoginSuccess(currUser);
             } else if (sessionStorage.getItem('is_admin') === 'true') {
@@ -55,11 +60,8 @@
 
         function handleLoginSuccess(u) {
             user = u;
-            if (!currentBranch) {
-                showScreen('branch');
-            } else {
-                showScreen('main');
-            }
+            if (!currentBranch) showScreen('branch');
+            else showScreen('main');
         }
 
         function showScreen(type) {
@@ -114,6 +116,7 @@
 
         window.setTab = (tab) => {
             currentTab = tab;
+            currentPage = 1; // Reset to page 1 on tab change
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 const isActive = btn.id === `tab-${tab}`;
                 btn.className = isActive 
@@ -123,18 +126,49 @@
             renderTable();
         };
 
+        // Filter Logic
+        window.applyFilters = () => {
+            dateFrom = document.getElementById('filter-from').value;
+            dateTo = document.getElementById('filter-to').value;
+            currentPage = 1;
+            renderTable();
+        };
+
+        window.clearFilters = () => {
+            document.getElementById('filter-from').value = '';
+            document.getElementById('filter-to').value = '';
+            dateFrom = '';
+            dateTo = '';
+            currentPage = 1;
+            renderTable();
+        };
+
         function renderTable() {
             const list = document.getElementById('delivery-list');
             const search = document.getElementById('search-input').value.toLowerCase();
             
+            // 1. Filter the full list
             const filtered = deliveries.filter(d => {
                 const isBranch = d.branch === currentBranch;
                 const isTab = currentTab === 'All' ? true : d.status === currentTab;
                 const isSearch = d.customer?.toLowerCase().includes(search) || d.orderId?.toLowerCase().includes(search);
-                return isBranch && isTab && isSearch;
+                
+                // Date Range Check
+                let isDateInRange = true;
+                if (dateFrom && d.deliveryDate < dateFrom) isDateInRange = false;
+                if (dateTo && d.deliveryDate > dateTo) isDateInRange = false;
+
+                return isBranch && isTab && isSearch && isDateInRange;
             }).sort((a,b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-            list.innerHTML = filtered.map(item => `
+            // 2. Pagination Logic
+            const totalItems = filtered.length;
+            const totalPages = Math.ceil(totalItems / rowsPerPage);
+            const startIdx = (currentPage - 1) * rowsPerPage;
+            const paginatedItems = filtered.slice(startIdx, startIdx + rowsPerPage);
+
+            // 3. Render Table
+            list.innerHTML = paginatedItems.map(item => `
                 <tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-all">
                     <td class="px-6 py-4">
                         <div class="font-black text-blue-600">#${item.orderId}</div>
@@ -164,14 +198,46 @@
                     </td>
                 </tr>
             `).join('');
+
+            // 4. Update Pagination Controls
+            renderPagination(totalPages, totalItems);
             if(!filtered.length) list.innerHTML = `<tr><td colspan="5" class="py-20 text-center text-gray-300 font-bold">စာရင်းမရှိသေးပါ။</td></tr>`;
             lucide.createIcons();
         }
 
-        // Export Function
+        function renderPagination(totalPages, totalItems) {
+            const container = document.getElementById('pagination-container');
+            if (totalPages <= 1) {
+                container.innerHTML = `<p class="text-[11px] font-bold text-gray-400">စုစုပေါင်း ${totalItems} စောင်</p>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="flex items-center gap-4">
+                    <button onclick="window.changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-20"><i data-lucide="chevron-left" class="w-4 h-4"></i></button>
+                    <span class="text-xs font-black text-slate-700">Page ${currentPage} of ${totalPages}</span>
+                    <button onclick="window.changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-20"><i data-lucide="chevron-right" class="w-4 h-4"></i></button>
+                    <span class="text-[11px] font-bold text-gray-400 ml-2">(${totalItems} စောင်)</span>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        window.changePage = (p) => {
+            currentPage = p;
+            renderTable();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
         window.exportToExcel = () => {
             const dataToExport = deliveries
-                .filter(d => d.branch === currentBranch)
+                .filter(d => {
+                    const isBranch = d.branch === currentBranch;
+                    let isDateInRange = true;
+                    if (dateFrom && d.deliveryDate < dateFrom) isDateInRange = false;
+                    if (dateTo && d.deliveryDate > dateTo) isDateInRange = false;
+                    return isBranch && isDateInRange;
+                })
                 .map(item => ({
                     'Date': item.deliveryDate,
                     'Order ID': item.orderId,
@@ -187,8 +253,6 @@
             const worksheet = XLSX.utils.json_to_sheet(dataToExport);
             const workbook = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(workbook, worksheet, currentBranch);
-            
-            // File name with branch and date
             const fileName = `DQ_${currentBranch}_${new Date().toLocaleDateString()}.xlsx`;
             XLSX.writeFile(workbook, fileName);
         };
@@ -239,11 +303,12 @@
             document.getElementById('modal').classList.remove('hidden');
         };
         document.getElementById('btn-close-modal').onclick = () => document.getElementById('modal').classList.add('hidden');
-        document.getElementById('search-input').oninput = renderTable;
+        document.getElementById('search-input').oninput = () => { currentPage = 1; renderTable(); };
     </script>
 </head>
 <body class="bg-[#F8FAFC] text-slate-900 min-h-screen font-sans">
 
+    <!-- Auth Screen -->
     <div id="auth-screen" class="hidden fixed inset-0 flex items-center justify-center p-6">
         <div class="bg-white p-12 rounded-[3rem] shadow-2xl shadow-blue-100 border border-blue-50 max-w-sm w-full text-center">
             <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-blue-200">
@@ -259,69 +324,61 @@
         </div>
     </div>
 
+    <!-- Branch Selection Screen -->
     <div id="branch-selection-screen" class="hidden fixed inset-0 flex items-center justify-center p-6 bg-[#F8FAFC]">
         <div class="max-w-md w-full text-center">
             <h1 class="text-3xl font-black text-slate-800 mb-2">မင်္ဂလာပါ</h1>
             <p class="text-gray-400 font-bold mb-10 uppercase tracking-widest text-[10px]">မည်သည့်ဆိုင်ခွဲ၏ စာရင်းကို ကြည့်လိုပါသနည်း?</p>
-            
             <div class="grid grid-cols-1 gap-4">
-                <button onclick="selectBranch('Yangon')" class="group relative overflow-hidden bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-all text-left">
+                <button onclick="selectBranch('Yangon')" class="group bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-all text-left">
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="text-2xl font-black text-slate-800">Yangon</h2>
                             <p class="text-blue-600 font-bold">ရန်ကုန်ဆိုင် စာရင်း</p>
                         </div>
-                        <div class="bg-blue-50 p-4 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                            <i data-lucide="map-pin"></i>
-                        </div>
+                        <div class="bg-blue-50 p-4 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-colors"><i data-lucide="map-pin"></i></div>
                     </div>
                 </button>
-
-                <button onclick="selectBranch('Mandalay')" class="group relative overflow-hidden bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-all text-left">
+                <button onclick="selectBranch('Mandalay')" class="group bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-xl shadow-slate-200/50 hover:scale-[1.02] transition-all text-left">
                     <div class="flex items-center justify-between">
                         <div>
                             <h2 class="text-2xl font-black text-slate-800">Mandalay</h2>
                             <p class="text-amber-600 font-bold">မန္တလေးဆိုင် စာရင်း</p>
                         </div>
-                        <div class="bg-amber-50 p-4 rounded-2xl group-hover:bg-amber-600 group-hover:text-white transition-colors">
-                            <i data-lucide="map-pinned"></i>
-                        </div>
+                        <div class="bg-amber-50 p-4 rounded-2xl group-hover:bg-amber-600 group-hover:text-white transition-colors"><i data-lucide="map-pinned"></i></div>
                     </div>
                 </button>
             </div>
-            
-            <button id="btn-logout-branch" onclick="location.reload()" class="mt-10 text-gray-400 text-xs font-bold hover:text-red-500">အကောင့်ထွက်ရန်</button>
+            <button onclick="location.reload()" class="mt-10 text-gray-400 text-xs font-bold hover:text-red-500 underline">အကောင့်ထွက်ရန်</button>
         </div>
     </div>
 
+    <!-- Main Content Screen -->
     <div id="main-screen" class="hidden p-4 md:p-10 max-w-6xl mx-auto">
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-12">
             <div class="space-y-2">
                 <div class="flex items-center gap-3">
-                    <div class="bg-blue-600 p-2.5 rounded-2xl shadow-lg shadow-blue-200">
-                        <i data-lucide="package" class="text-white w-6 h-6"></i>
-                    </div>
-                    <h1 id="display-branch-title" class="text-3xl font-black text-slate-800 tracking-tight">ရန်ကုန်ဆိုင် စာရင်း</h1>
+                    <div class="bg-blue-600 p-2.5 rounded-2xl shadow-lg shadow-blue-200"><i data-lucide="package" class="text-white w-6 h-6"></i></div>
+                    <h1 id="display-branch-title" class="text-3xl font-black text-slate-800 tracking-tight">ဆိုင်ခွဲ စာရင်း</h1>
                 </div>
                 <div class="flex bg-white p-1 rounded-xl border border-slate-100 w-fit shadow-sm">
                     <button data-branch="Yangon" onclick="selectBranch('Yangon')" class="branch-toggle-btn px-4 py-2 rounded-xl text-xs font-black transition-all">ရန်ကုန်</button>
                     <button data-branch="Mandalay" onclick="selectBranch('Mandalay')" class="branch-toggle-btn px-4 py-2 rounded-xl text-xs font-black transition-all">မန္တလေး</button>
                 </div>
             </div>
-            <div class="flex items-center gap-3">
-                <button onclick="exportToExcel()" class="flex items-center gap-2 px-5 py-4 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-2xl font-black hover:bg-emerald-600 hover:text-white transition-all shadow-sm">
+            <div class="flex items-center gap-3 w-full md:w-auto">
+                <button onclick="exportToExcel()" class="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 py-4 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-2xl font-black hover:bg-emerald-600 hover:text-white transition-all">
                     <i data-lucide="file-spreadsheet" class="w-5 h-5"></i>
-                    <span class="hidden sm:inline">စာရင်းထုတ်ရန် (Excel)</span>
+                    <span class="hidden sm:inline">Excel ထုတ်ရန်</span>
                 </button>
-                <button id="btn-logout" class="p-3 bg-white border border-slate-100 text-slate-400 rounded-2xl hover:text-red-500 transition-colors shadow-sm">
-                    <i data-lucide="log-out" class="w-5 h-5"></i>
-                </button>
-                <button id="btn-add" class="bg-blue-600 text-white px-8 py-4 rounded-[1.5rem] font-black shadow-xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all">
+                <button id="btn-add" class="flex-1 md:flex-none bg-blue-600 text-white px-8 py-4 rounded-[1.5rem] font-black shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all">
                     စာရင်းအသစ်ထည့်ရန်
                 </button>
+                <button id="btn-logout" class="p-4 bg-white border border-slate-100 text-slate-400 rounded-2xl hover:text-red-500 shadow-sm"><i data-lucide="log-out" class="w-5 h-5"></i></button>
             </div>
         </header>
 
+        <!-- Summary Cards -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
             <div class="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm flex items-center gap-6">
                 <div class="bg-blue-50 p-5 rounded-2xl text-blue-600"><i data-lucide="banknote" class="w-8 h-8"></i></div>
@@ -339,19 +396,42 @@
             </div>
         </div>
 
-        <div class="bg-white p-4 rounded-[2rem] border border-slate-100 shadow-sm mb-6 flex flex-col md:flex-row gap-4 items-center">
-            <div class="flex bg-slate-50 p-1 rounded-2xl w-full md:w-auto">
-                <button id="tab-All" onclick="setTab('All')" class="tab-btn px-6 py-2 rounded-xl text-xs font-black bg-slate-800 text-white shadow-lg transition-all">အားလုံး</button>
-                <button id="tab-Pending" onclick="setTab('Pending')" class="tab-btn px-6 py-2 rounded-xl text-xs font-bold text-gray-400 transition-all">ပို့ရန်ကျန်</button>
-                <button id="tab-Delivered" onclick="setTab('Delivered')" class="tab-btn px-6 py-2 rounded-xl text-xs font-bold text-gray-400 transition-all">ပို့ပြီး</button>
+        <!-- Filters & Search -->
+        <div class="space-y-4 mb-6">
+            <div class="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm flex flex-col lg:flex-row gap-6 items-end lg:items-center">
+                <div class="grid grid-cols-2 gap-4 w-full lg:w-auto">
+                    <div class="space-y-1">
+                        <label class="text-[9px] font-black text-slate-400 uppercase ml-1">မှ (Start Date)</label>
+                        <input id="filter-from" type="date" class="w-full px-4 py-2.5 bg-slate-50 rounded-xl text-xs font-bold border border-transparent focus:border-blue-100 outline-none">
+                    </div>
+                    <div class="space-y-1">
+                        <label class="text-[9px] font-black text-slate-400 uppercase ml-1">အထိ (End Date)</label>
+                        <input id="filter-to" type="date" class="w-full px-4 py-2.5 bg-slate-50 rounded-xl text-xs font-bold border border-transparent focus:border-blue-100 outline-none">
+                    </div>
+                </div>
+                <div class="flex gap-2 w-full lg:w-auto">
+                    <button onclick="applyFilters()" class="flex-1 lg:flex-none px-6 py-2.5 bg-slate-800 text-white rounded-xl text-xs font-black shadow-lg">Filter</button>
+                    <button onclick="clearFilters()" class="px-6 py-2.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-black">Clear</button>
+                </div>
+                <div class="h-8 w-px bg-slate-100 hidden lg:block"></div>
+                <div class="relative flex-1 w-full">
+                    <i data-lucide="search" class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 w-4 h-4"></i>
+                    <input id="search-input" type="text" placeholder="အမည် သို့မဟုတ် Order ID ဖြင့်ရှာပါ..." class="w-full pl-12 pr-6 py-3.5 bg-slate-50 rounded-2xl outline-none border border-transparent focus:bg-white focus:border-blue-100 transition-all text-sm font-bold">
+                </div>
             </div>
-            <div class="relative flex-1 w-full">
-                <i data-lucide="search" class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300 w-4 h-4"></i>
-                <input id="search-input" type="text" placeholder="အမည် သို့မဟုတ် Order ID ဖြင့်ရှာပါ..." class="w-full pl-12 pr-6 py-3.5 bg-slate-50 rounded-2xl outline-none border border-transparent focus:bg-white focus:border-blue-100 transition-all text-sm font-bold">
+
+            <div class="flex justify-between items-center px-4">
+                <div class="flex bg-white p-1 rounded-2xl border border-slate-100 shadow-sm">
+                    <button id="tab-All" onclick="setTab('All')" class="tab-btn px-6 py-2 rounded-xl text-xs font-black bg-slate-800 text-white shadow-lg transition-all">အားလုံး</button>
+                    <button id="tab-Pending" onclick="setTab('Pending')" class="tab-btn px-6 py-2 rounded-xl text-xs font-bold text-gray-400 transition-all">ပို့ရန်ကျန်</button>
+                    <button id="tab-Delivered" onclick="setTab('Delivered')" class="tab-btn px-6 py-2 rounded-xl text-xs font-bold text-gray-400 transition-all">ပို့ပြီး</button>
+                </div>
+                <div id="pagination-container"></div>
             </div>
         </div>
 
-        <div class="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+        <!-- Data Table -->
+        <div class="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden mb-10">
             <div class="overflow-x-auto">
                 <table class="w-full text-left">
                     <thead class="bg-slate-50/50 text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -369,6 +449,7 @@
         </div>
     </div>
 
+    <!-- Modal -->
     <div id="modal" class="hidden fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="bg-white rounded-[3rem] w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 overflow-y-auto max-h-[90vh]">
             <div class="px-10 py-6 border-b border-slate-50 flex justify-between items-center sticky top-0 bg-white z-10">
@@ -392,16 +473,14 @@
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Phone</label>
                     <input id="f-phone" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
                 </div>
-                
                 <div class="col-span-2 space-y-1.5">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Address (လိပ်စာ)</label>
                     <textarea id="f-address" rows="2" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all resize-none"></textarea>
                 </div>
                 <div class="col-span-2 space-y-1.5">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Note (မှတ်ချက်)</label>
-                    <input id="f-note" placeholder="ဥပမာ- ဘူးခွံပါ၊ မနက်ဖြန်မှပို့ပါ" class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
+                    <input id="f-note" placeholder="မှတ်ချက်များ ရေးသွင်းရန်..." class="w-full px-5 py-3.5 bg-slate-50 rounded-2xl outline-none font-bold border border-transparent focus:bg-white focus:border-blue-200 transition-all">
                 </div>
-
                 <div class="col-span-2 space-y-1.5 pt-2">
                     <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 text-blue-600">COD Amount (Ks)</label>
                     <input id="f-cod" required type="text" class="w-full px-5 py-4 bg-blue-50 rounded-2xl outline-none font-black text-blue-600 text-lg border border-transparent focus:bg-white focus:border-blue-200 transition-all">
