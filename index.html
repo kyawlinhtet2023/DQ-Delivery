@@ -8,18 +8,13 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, query } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyBuSzEKFKhfPnGU0iVpoOvQQpcKIPCGjkI",
-            authDomain: "dq---tracking-number.firebaseapp.com",
-            projectId: "dq---tracking-number",
-            storageBucket: "dq---tracking-number.firebasestorage.app",
-            messagingSenderId: "335354673594",
-            appId: "1:335354673594:web:f0cfb69bb2bd4eb26fc583",
-            measurementId: "G-L8CWZF4TR8"
-        };
+        // Global variables provided by environment
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'dq-tracking-v2';
+        const initialToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         const ALLOWED_EMAILS = ['uresher@gmail.com', 'dqskinmm@gmail.com'];
         const ADMIN_CODE = "dqskinmdyygn";
@@ -29,8 +24,6 @@
         const db = getFirestore(app);
         const provider = new GoogleAuthProvider();
         
-        // Path constants based on mandatory rules
-        const APP_ID = 'dq-tracking-v2'; 
         const COLLECTION_NAME = 'deliveries';
 
         let user = null;
@@ -43,11 +36,33 @@
         const mainScreen = document.getElementById('main-screen');
         const loadingSpinner = document.getElementById('loading-spinner');
 
+        // Rule 3: Auth Before Queries
+        const initAuth = async () => {
+            try {
+                if (initialToken) {
+                    await signInWithCustomToken(auth, initialToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (e) {
+                console.error("Auth Error:", e);
+                // Fallback to anonymous if custom token fails
+                await signInAnonymously(auth);
+            }
+        };
+
+        initAuth();
+
         onAuthStateChanged(auth, async (currUser) => {
             loadingSpinner.classList.add('hidden');
-            if (currUser && (ALLOWED_EMAILS.includes(currUser.email) || sessionStorage.getItem('is_admin') === 'true')) {
+            if (currUser) {
                 user = currUser;
-                handleLoginSuccess(currUser);
+                // Check for admin status via email or session
+                if (ALLOWED_EMAILS.includes(currUser.email) || sessionStorage.getItem('is_admin') === 'true' || !currUser.email) {
+                    handleLoginSuccess(currUser);
+                } else {
+                    showScreen('auth');
+                }
             } else {
                 showScreen('auth');
             }
@@ -93,10 +108,12 @@
 
         function loadData() {
             if (!user) return;
-            // Updated Path to follow mandatory rule 1
-            const q = collection(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME);
             
-            onSnapshot(q, (snapshot) => {
+            // Rule 1 & 2: Mandatory Path Structure and Simple Queries
+            // We fetch from the public data path as per instructions
+            const publicPath = collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME);
+            
+            onSnapshot(publicPath, (snapshot) => {
                 deliveries = snapshot.docs.map(doc => ({
                     ...doc.data(),
                     id: doc.id,
@@ -106,6 +123,8 @@
                 updateStats();
             }, (error) => {
                 console.error("Firestore Error:", error);
+                const list = document.getElementById('delivery-list');
+                list.innerHTML = `<tr><td colspan="5" class="py-20 text-center text-red-400 font-bold">ဒေတာဆွဲယူရာတွင် အမှားအယွင်းရှိနေပါသည်။ (Permission Denied)</td></tr>`;
             });
         }
 
@@ -183,14 +202,14 @@
 
         window.updateField = async (id, field, value) => {
             if (!user) return;
-            const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME, id);
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id);
             await updateDoc(docRef, { [field]: value });
         };
 
         window.deleteItem = async (id) => {
             if (!user) return;
             if(confirm("ဖျက်ရန် သေချာပါသလား?")) {
-                const docRef = doc(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME, id);
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id);
                 await deleteDoc(docRef);
             }
         };
@@ -214,7 +233,7 @@
                 timestamp: Date.now()
             };
             try {
-                const colRef = collection(db, 'artifacts', APP_ID, 'public', 'data', COLLECTION_NAME);
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME);
                 await addDoc(colRef, data);
                 orderForm.reset();
                 document.getElementById('modal').classList.add('hidden');
@@ -232,13 +251,16 @@
         };
         
         document.getElementById('login-code').onclick = async () => {
-            if(prompt("Code:") === ADMIN_CODE) {
+            const code = prompt("Code:");
+            if(code === ADMIN_CODE) {
                 sessionStorage.setItem('is_admin', 'true');
                 try {
                     await signInAnonymously(auth);
                 } catch (e) {
                     console.error(e);
                 }
+            } else if (code) {
+                alert("မှားယွင်းသော Code ဖြစ်ပါသည်။");
             }
         };
 
