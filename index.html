@@ -12,22 +12,24 @@
         import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
         import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
 
-        // === သင်၏ Firebase Config ကို ဤနေရာတွင် ထည့်ပါ ===
-      const firebaseConfig = {
-  apiKey: "AIzaSyBuSzEKFKhfPnGU0iVpoOvQQpcKIPCGjkI",
-  authDomain: "dq---tracking-number.firebaseapp.com",
-  projectId: "dq---tracking-number",
-  storageBucket: "dq---tracking-number.firebasestorage.app",
-  messagingSenderId: "335354673594",
-  appId: "1:335354673594:web:f0cfb69bb2bd4eb26fc583",
-  measurementId: "G-L8CWZF4TR8"
-};
+        // === သင်၏ Firebase Config ကို ဤနေရာတွင် အစားထိုးထည့်ပါ ===
+        const firebaseConfig = {
+            apiKey: "AIzaSy...",            
+            authDomain: "your-project.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "1:123456789:web:abcdef..."
+        };
 
         // === ဝင်ရောက်ခွင့်ပြုမည့် Email များစာရင်း ===
         const ALLOWED_EMAILS = [
             'uresher@gmail.com',
             'dqskinmm@gmail.com'
         ];
+
+        // === Backup Access Code (Google login ဝင်မရပါက သုံးရန်) ===
+        const ADMIN_ACCESS_CODE = "123456"; 
 
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -45,6 +47,7 @@
         const authScreen = document.getElementById('auth-screen');
         const mainScreen = document.getElementById('main-screen');
         const errorMsg = document.getElementById('error-msg');
+        const loadingEl = document.getElementById('loading-spinner');
         const deliveryList = document.getElementById('delivery-list');
         const orderForm = document.getElementById('order-form');
         const totalCodEl = document.getElementById('total-cod');
@@ -58,23 +61,39 @@
 
         // Auth Listener
         onAuthStateChanged(auth, (currUser) => {
+            loadingEl.classList.add('hidden');
             if (currUser) {
                 if (ALLOWED_EMAILS.includes(currUser.email)) {
-                    user = currUser;
-                    authScreen.classList.add('hidden');
-                    mainScreen.classList.remove('hidden');
-                    loadData();
+                    loginSuccess(currUser);
                 } else {
                     signOut(auth);
-                    errorMsg.innerText = "ဝင်ရောက်ခွင့်မရှိပါ။ Admin ထံ ဆက်သွယ်ပါ။";
-                    errorMsg.classList.remove('hidden');
+                    showError("ဝင်ရောက်ခွင့်မရှိပါ။ Admin Email စာရင်းဝင် ဖြစ်ရပါမည်။");
                 }
             } else {
-                user = null;
-                authScreen.classList.remove('hidden');
-                mainScreen.classList.add('hidden');
+                // Check if already logged in via session (for access code backup)
+                const isAuth = sessionStorage.getItem('admin_authenticated');
+                if (isAuth === 'true') {
+                    loginSuccess({ email: 'Admin (Access Code)' });
+                } else {
+                    user = null;
+                    authScreen.classList.remove('hidden');
+                    mainScreen.classList.add('hidden');
+                }
             }
         });
+
+        function loginSuccess(u) {
+            user = u;
+            authScreen.classList.add('hidden');
+            mainScreen.classList.remove('hidden');
+            loadData();
+        }
+
+        function showError(msg) {
+            errorMsg.innerText = msg;
+            errorMsg.classList.remove('hidden');
+            setTimeout(() => errorMsg.classList.add('hidden'), 5000);
+        }
 
         function loadData() {
             const colRef = collection(db, COLLECTION_NAME); 
@@ -129,39 +148,21 @@
             lucide.createIcons();
         }
 
-        // CSV Export Function
         window.exportToCSV = () => {
             if (deliveries.length === 0) return alert("ထုတ်ယူရန် ဒေတာမရှိပါ။");
-
             const headers = ["Order ID", "Date", "Customer", "Phone", "COD Amount", "Delivery Status", "COD Status", "Address"];
             const rows = deliveries.map(item => [
-                `#${item.orderId}`,
-                item.deliveryDate,
-                item.customer,
-                item.phone,
-                item.cod,
+                `#${item.orderId}`, item.deliveryDate, item.customer, item.phone, item.cod,
                 item.status === 'Delivered' ? 'ပို့ပြီး' : 'ပို့ရန်ကျန်',
                 item.codStatus === 'Paid' ? 'ရှင်းပြီး' : 'မရှင်းသေး',
                 `"${item.address.replace(/\n/g, ' ')}"`
             ]);
-
-            let csvContent = "\ufeff"; // Add BOM for Excel UTF-8 support
-            csvContent += headers.join(",") + "\n";
-            rows.forEach(row => {
-                csvContent += row.join(",") + "\n";
-            });
-
+            let csvContent = "\ufeff" + headers.join(",") + "\n" + rows.map(r => r.join(",")).join("\n");
             const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement("a");
-            const url = URL.createObjectURL(blob);
-            const date = new Date().toISOString().split('T')[0];
-            
-            link.setAttribute("href", url);
-            link.setAttribute("download", `delivery_report_${date}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
+            link.href = URL.createObjectURL(blob);
+            link.download = `report_${new Date().toISOString().split('T')[0]}.csv`;
             link.click();
-            document.body.removeChild(link);
         };
 
         window.toggleStatus = async (id, field, current) => {
@@ -215,28 +216,74 @@
             document.getElementById('form-modal').classList.remove('hidden');
         };
         document.getElementById('btn-close').onclick = () => document.getElementById('form-modal').classList.add('hidden');
-        document.getElementById('login-google').onclick = () => {
+        
+        // Google Login Handler
+        document.getElementById('login-google').onclick = async () => {
             errorMsg.classList.add('hidden');
-            signInWithPopup(auth, provider);
+            loadingEl.classList.remove('hidden');
+            try {
+                // signInWithPopup may fail in some iFrames, retry if needed
+                await signInWithPopup(auth, provider);
+            } catch (err) {
+                loadingEl.classList.add('hidden');
+                console.error(err);
+                showError("Google Login ဝင်မရပါ။ အောက်က Access Code ကို သုံးကြည့်ပါ။");
+            }
         };
-        document.getElementById('logout').onclick = () => signOut(auth);
+
+        // Backup Login Handler
+        document.getElementById('btn-access-code').onclick = () => {
+            const code = prompt("Admin Access Code ကို ရိုက်ထည့်ပါ:");
+            if (code === ADMIN_ACCESS_CODE) {
+                sessionStorage.setItem('admin_authenticated', 'true');
+                loginSuccess({ email: 'Admin (Access Code)' });
+            } else if (code !== null) {
+                showError("Access Code မှားယွင်းနေပါသည်။");
+            }
+        };
+
+        document.getElementById('logout').onclick = () => {
+            signOut(auth);
+            sessionStorage.removeItem('admin_authenticated');
+            window.location.reload();
+        };
 
     </script>
 </head>
-<body class="bg-gray-50 text-slate-900">
+<body class="bg-gray-50 text-slate-900 font-sans">
 
     <!-- Auth Screen -->
     <div id="auth-screen" class="h-screen flex items-center justify-center p-4">
         <div class="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-md w-full text-center border border-gray-100">
-            <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6">
+            <div class="bg-blue-600 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-6 relative">
                 <i data-lucide="lock" class="text-white w-10 h-10"></i>
+                <div id="loading-spinner" class="hidden absolute inset-0 bg-blue-600/80 rounded-3xl flex items-center justify-center">
+                    <div class="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                </div>
             </div>
             <h1 class="text-2xl font-black mb-2">Private Access</h1>
-            <p class="text-gray-500 mb-8 font-medium">ဒီစာရင်းကိုကြည့်ရန် Google ဖြင့် Login ဝင်ပါ</p>
-            <p id="error-msg" class="hidden text-red-500 text-sm font-bold mb-4 bg-red-50 p-3 rounded-xl"></p>
-            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all active:scale-95">
+            <p class="text-gray-500 mb-8 font-medium">စာရင်းကြည့်ရန် Login ဝင်ပါ</p>
+            <p id="error-msg" class="hidden text-red-500 text-sm font-bold mb-4 bg-red-50 p-3 rounded-xl border border-red-100"></p>
+            
+            <button id="login-google" class="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-gray-100 rounded-2xl font-black text-gray-700 hover:bg-gray-50 transition-all active:scale-95 shadow-sm mb-4">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-5 h-5" alt="google">
                 Google ဖြင့် Login ဝင်မည်
             </button>
+
+            <div class="relative flex items-center gap-2 mb-4">
+                <div class="flex-1 h-px bg-gray-100"></div>
+                <span class="text-[10px] font-bold text-gray-300 uppercase">OR</span>
+                <div class="flex-1 h-px bg-gray-100"></div>
+            </div>
+
+            <button id="btn-access-code" class="w-full py-3 text-sm font-bold text-blue-600 hover:bg-blue-50 rounded-xl transition-colors">
+                Access Code ဖြင့် ဝင်မည်
+            </button>
+            
+            <div class="mt-8 text-[10px] text-gray-400 font-bold uppercase tracking-widest leading-loose text-center">
+                Authorized Emails only<br>
+                uresher@gmail.com | dqskinmm@gmail.com
+            </div>
         </div>
     </div>
 
@@ -257,6 +304,7 @@
             </div>
         </header>
 
+        <!-- Stats -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
             <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
                 <p class="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">စုစုပေါင်း COD</p>
@@ -272,8 +320,9 @@
             </div>
         </div>
 
+        <!-- Table -->
         <div class="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-x-auto">
-            <table class="w-full text-left">
+            <table class="w-full text-left min-w-[600px]">
                 <thead class="bg-gray-50 text-[10px] font-bold text-gray-400 uppercase">
                     <tr>
                         <th class="px-8 py-5">Order</th>
@@ -288,44 +337,40 @@
         </div>
     </div>
 
-    <!-- Modal -->
+    <!-- Form Modal -->
     <div id="form-modal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-[2.5rem] w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in duration-200">
             <div class="p-8 border-b flex justify-between items-center bg-gray-50">
                 <h3 id="modal-title" class="text-2xl font-black">အော်ဒါအသစ်</h3>
-                <button id="btn-close" class="text-gray-400"><i data-lucide="x"></i></button>
+                <button id="btn-close" class="text-gray-400 p-2 hover:bg-gray-200 rounded-full transition-colors"><i data-lucide="x"></i></button>
             </div>
             <form id="order-form" class="p-8 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <input type="hidden" id="edit-id">
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2">ORDER ID</label>
-                   <input required id="orderId" placeholder="ID" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">ORDER ID</label>
+                   <input required id="orderId" placeholder="Order ID" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2">ဝယ်ယူသူအမည်</label>
-                   <input required id="customer" placeholder="Name" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Customer Name</label>
+                   <input required id="customer" placeholder="ဝယ်ယူသူအမည်" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2">ဖုန်းနံပါတ်</label>
+                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Phone</label>
                    <input id="phone" placeholder="09..." class="p-4 bg-gray-50 rounded-2xl outline-none font-bold focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2">COD ပမာဏ</label>
-                   <input required id="cod" placeholder="Amount" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl focus:ring-2 focus:ring-blue-500">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">COD Amount</label>
+                   <input required id="cod" placeholder="ကျသင့်ငွေ" class="p-4 bg-gray-50 rounded-2xl outline-none font-black text-blue-600 text-xl focus:ring-2 focus:ring-blue-500">
                 </div>
                 <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2">ရက်စွဲ</label>
+                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Delivery Date</label>
                    <input type="date" id="deliveryDate" class="p-4 bg-gray-50 rounded-2xl outline-none font-bold">
                 </div>
-                <div class="flex flex-col gap-1">
-                   <label class="text-[10px] font-bold text-gray-400 ml-2">မှာယူသည့်ပစ္စည်း</label>
-                   <input id="items" placeholder="Items" class="p-4 bg-gray-50 rounded-2xl outline-none focus:ring-2 focus:ring-blue-500">
-                </div>
                 <div class="md:col-span-2 flex flex-col gap-1">
-                    <label class="text-[10px] font-bold text-gray-400 ml-2">လိပ်စာ</label>
-                    <textarea id="address" placeholder="Address..." class="p-4 bg-gray-50 rounded-2xl outline-none h-24 resize-none focus:ring-2 focus:ring-blue-500"></textarea>
+                    <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase">Address</label>
+                    <textarea id="address" placeholder="လိပ်စာ..." class="p-4 bg-gray-50 rounded-2xl outline-none h-24 resize-none focus:ring-2 focus:ring-blue-500"></textarea>
                 </div>
-                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all">သိမ်းဆည်းမည်</button>
+                <button type="submit" class="md:col-span-2 py-4 bg-blue-600 text-white rounded-2xl font-black shadow-lg hover:bg-blue-700 active:scale-95 transition-all mt-4">သိမ်းဆည်းမည်</button>
             </form>
         </div>
     </div>
