@@ -34,7 +34,8 @@
         // App State
         let user = null;
         let deliveries = [];
-        let currentTab = 'All'; // All, Pending, Delivered
+        let currentTab = 'All'; 
+        let currentBranch = 'Yangon'; // Default Branch
         let startDateFilter = '';
         let endDateFilter = '';
 
@@ -83,10 +84,13 @@
         }
 
         function loadData() {
-            // Real-time listener for data
             const q = collection(db, COLLECTION_NAME);
             onSnapshot(q, (snapshot) => {
-                deliveries = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+                deliveries = snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    // If branch is missing, default to Yangon as requested
+                    return { ...data, id: doc.id, branch: data.branch || 'Yangon' };
+                });
                 renderTable();
                 updateStats();
             }, (error) => {
@@ -96,25 +100,40 @@
         }
 
         function updateStats() {
-            const total = deliveries.reduce((s, i) => s + (Number(i.cod) || 0), 0);
-            const unpaid = deliveries.filter(d => d.codStatus !== 'Paid').reduce((s, i) => s + (Number(i.cod) || 0), 0);
-            const deliveredCount = deliveries.filter(d => d.status === 'Delivered').length;
+            // Stats based on currently selected branch
+            const branchData = deliveries.filter(d => d.branch === currentBranch);
+            const total = branchData.reduce((s, i) => s + (Number(i.cod) || 0), 0);
+            const unpaid = branchData.filter(d => d.codStatus !== 'Paid').reduce((s, i) => s + (Number(i.cod) || 0), 0);
+            const deliveredCount = branchData.filter(d => d.status === 'Delivered').length;
             
             document.getElementById('total-cod').innerText = `${total.toLocaleString()} Ks`;
             document.getElementById('unpaid-cod').innerText = `${unpaid.toLocaleString()} Ks`;
             document.getElementById('delivered-count').innerText = `${deliveredCount} ခု`;
+            document.getElementById('branch-title').innerText = currentBranch === 'Yangon' ? 'ရန်ကုန်ဆိုင် စာရင်း' : 'မန္တလေးဆိုင် စာရင်း';
         }
 
-        // Filter & Tab Logic
+        window.switchBranch = (branch) => {
+            currentBranch = branch;
+            document.querySelectorAll('.branch-btn').forEach(btn => {
+                btn.classList.remove('bg-blue-600', 'text-white', 'border-blue-600');
+                btn.classList.add('bg-white', 'text-gray-500', 'border-gray-200');
+            });
+            const activeBtn = document.getElementById(`branch-${branch}`);
+            activeBtn.classList.add('bg-blue-600', 'text-white', 'border-blue-600');
+            activeBtn.classList.remove('bg-white', 'text-gray-500', 'border-gray-200');
+            renderTable();
+            updateStats();
+        };
+
         window.setTab = (tab) => {
             currentTab = tab;
             document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('bg-blue-600', 'text-white');
+                btn.classList.remove('bg-slate-800', 'text-white');
                 btn.classList.add('bg-white', 'text-gray-500');
             });
             const activeBtn = document.getElementById(`tab-${tab}`);
             if (activeBtn) {
-                activeBtn.classList.add('bg-blue-600', 'text-white');
+                activeBtn.classList.add('bg-slate-800', 'text-white');
                 activeBtn.classList.remove('bg-white', 'text-gray-500');
             }
             renderTable();
@@ -138,19 +157,18 @@
             const searchStr = document.getElementById('search-input').value.toLowerCase();
             
             let filtered = deliveries.filter(item => {
+                const matchesBranch = item.branch === currentBranch;
                 const matchesSearch = (item.orderId || "").toLowerCase().includes(searchStr) || 
                                      (item.customer || "").toLowerCase().includes(searchStr);
-                
                 const matchesTab = currentTab === 'All' ? true : item.status === currentTab;
                 
                 let matchesDate = true;
                 if (startDateFilter && item.deliveryDate < startDateFilter) matchesDate = false;
                 if (endDateFilter && item.deliveryDate > endDateFilter) matchesDate = false;
 
-                return matchesSearch && matchesTab && matchesDate;
+                return matchesBranch && matchesSearch && matchesTab && matchesDate;
             });
 
-            // Sort by latest timestamp or delivery date
             const sortedData = filtered.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             
             deliveryList.innerHTML = sortedData.map(item => `
@@ -218,6 +236,7 @@
             document.getElementById('cod').value = item.cod;
             document.getElementById('address').value = item.address;
             document.getElementById('deliveryDate').value = item.deliveryDate;
+            document.getElementById('orderBranch').value = item.branch || 'Yangon';
             document.getElementById('modal-title').innerText = "စာရင်းပြင်ရန်";
             document.getElementById('form-modal').classList.remove('hidden');
         };
@@ -225,6 +244,7 @@
         orderForm.onsubmit = async (e) => {
             e.preventDefault();
             const editId = document.getElementById('edit-id').value;
+            const branchVal = document.getElementById('orderBranch').value;
             const data = {
                 orderId: document.getElementById('orderId').value,
                 customer: document.getElementById('customer').value,
@@ -232,6 +252,7 @@
                 cod: mmToEn(document.getElementById('cod').value),
                 address: document.getElementById('address').value,
                 deliveryDate: document.getElementById('deliveryDate').value,
+                branch: branchVal,
                 timestamp: Date.now()
             };
             try {
@@ -242,6 +263,8 @@
                 }
                 orderForm.reset();
                 document.getElementById('form-modal').classList.add('hidden');
+                // Switch to the branch where order was added
+                if(currentBranch !== branchVal) switchBranch(branchVal);
             } catch (e) {
                 showError("သိမ်းဆည်း၍မရပါ။");
             }
@@ -251,6 +274,7 @@
             document.getElementById('edit-id').value = "";
             orderForm.reset();
             document.getElementById('deliveryDate').value = new Date().toISOString().split('T')[0];
+            document.getElementById('orderBranch').value = currentBranch; // Default to current branch
             document.getElementById('modal-title').innerText = "အော်ဒါအသစ်";
             document.getElementById('form-modal').classList.remove('hidden');
         };
@@ -280,12 +304,13 @@
         };
 
         window.exportToCSV = () => {
-            const headers = ["Order ID", "Date", "Customer", "Phone", "COD", "Status", "COD Status"];
-            const rows = deliveries.map(i => [`#${i.orderId}`, i.deliveryDate, i.customer, i.phone, i.cod, i.status, i.codStatus]);
+            const branchData = deliveries.filter(d => d.branch === currentBranch);
+            const headers = ["Order ID", "Date", "Customer", "Phone", "COD", "Status", "COD Status", "Branch"];
+            const rows = branchData.map(i => [`#${i.orderId}`, i.deliveryDate, i.customer, i.phone, i.cod, i.status, i.codStatus, i.branch]);
             let csv = "\ufeff" + headers.join(",") + "\n" + rows.map(r => r.join(",")).join("\n");
             const link = document.createElement("a");
             link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-            link.download = `Delivery_Report_${new Date().toISOString().split('T')[0]}.csv`;
+            link.download = `${currentBranch}_Delivery_Report_${new Date().toISOString().split('T')[0]}.csv`;
             link.click();
         };
     </script>
@@ -313,11 +338,17 @@
 
     <!-- Main Screen -->
     <div id="main-screen" class="hidden min-h-screen p-4 md:p-10 max-w-6xl mx-auto">
-        <header class="flex flex-wrap justify-between items-center gap-4 mb-10">
-            <div>
+        <header class="flex flex-wrap justify-between items-start gap-4 mb-10">
+            <div class="space-y-4">
                 <h1 class="text-3xl font-black text-gray-800 flex items-center gap-3">
-                   <div class="bg-blue-600 p-2 rounded-xl"><i data-lucide="truck" class="text-white w-6 h-6"></i></div> Delivery Tracker
+                   <div class="bg-blue-600 p-2 rounded-xl"><i data-lucide="truck" class="text-white w-6 h-6"></i></div> <span id="branch-title">ရန်ကုန်ဆိုင် စာရင်း</span>
                 </h1>
+                
+                <!-- Branch Switcher -->
+                <div class="flex gap-2 p-1 bg-white border border-gray-200 rounded-2xl w-fit">
+                    <button id="branch-Yangon" onclick="switchBranch('Yangon')" class="branch-btn px-6 py-2 rounded-xl text-sm font-black transition-all bg-blue-600 text-white border border-blue-600 shadow-sm">ရန်ကုန်</button>
+                    <button id="branch-Mandalay" onclick="switchBranch('Mandalay')" class="branch-btn px-6 py-2 rounded-xl text-sm font-black transition-all bg-white text-gray-500 border border-gray-200">မန္တလေး</button>
+                </div>
                 <button id="logout" class="text-red-500 text-xs font-bold mt-1 hover:underline">စနစ်မှထွက်ရန် (Logout)</button>
             </div>
             <div class="flex gap-2">
@@ -358,7 +389,7 @@
             <div class="flex flex-wrap items-center justify-between gap-6">
                 <!-- Tabs -->
                 <div class="flex bg-gray-100 p-1.5 rounded-2xl w-full sm:w-auto overflow-x-auto">
-                    <button id="tab-All" onclick="setTab('All')" class="tab-btn flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-xs font-black bg-blue-600 text-white transition-all">အားလုံး</button>
+                    <button id="tab-All" onclick="setTab('All')" class="tab-btn flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-xs font-black bg-slate-800 text-white transition-all">အားလုံး</button>
                     <button id="tab-Pending" onclick="setTab('Pending')" class="tab-btn flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-xs font-black text-gray-500 hover:text-gray-700 transition-all">ပို့ရန်ကျန်</button>
                     <button id="tab-Delivered" onclick="setTab('Delivered')" class="tab-btn flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-xs font-black text-gray-500 hover:text-gray-700 transition-all">ပို့ပြီး</button>
                 </div>
@@ -409,6 +440,15 @@
             </div>
             <form id="order-form" class="p-8 grid grid-cols-1 md:grid-cols-2 gap-5">
                 <input type="hidden" id="edit-id">
+                
+                <div class="md:col-span-2 space-y-1.5">
+                   <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase tracking-tighter">Select Branch (ဆိုင်ခွဲရွေးပါ)</label>
+                   <select id="orderBranch" class="w-full p-4 bg-blue-50/50 rounded-2xl outline-none font-black border-2 border-blue-100 focus:border-blue-500 focus:bg-white transition-all appearance-none cursor-pointer">
+                       <option value="Yangon">Yangon (ရန်ကုန်)</option>
+                       <option value="Mandalay">Mandalay (မန္တလေး)</option>
+                   </select>
+                </div>
+
                 <div class="space-y-1.5">
                    <label class="text-[10px] font-bold text-gray-400 ml-2 uppercase tracking-tighter">Order ID</label>
                    <input required id="orderId" placeholder="ဥပမာ- 001" class="w-full p-4 bg-gray-50 rounded-2xl outline-none font-bold border border-transparent focus:border-blue-500 focus:bg-white transition-all">
